@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Job Prep Mockup</title>
+<style>
+:root{--bg:#f6f7f9;--fg:#1c1f24;--card:#fff;--mut:#6b7280;--bd:#e5e7eb;--ac:#2563eb;--ok:#15803d;--warn:#b45309;--bad:#b91c1c}
+@media(prefers-color-scheme:dark){:root{--bg:#14161a;--fg:#e6e8eb;--card:#1d2026;--mut:#9aa1ac;--bd:#2c313a;--ac:#6ea0ff;--ok:#4ade80;--warn:#fbbf24;--bad:#f87171}}
+*{box-sizing:border-box}body{margin:0;font:14px system-ui,sans-serif;background:var(--bg);color:var(--fg)}
+nav{display:flex;gap:4px;padding:10px 16px;background:var(--card);border-bottom:1px solid var(--bd);flex-wrap:wrap;align-items:center}
+nav b{margin-right:12px}nav button{border:0;background:none;color:var(--mut);padding:6px 12px;border-radius:6px;cursor:pointer;font:inherit}
+nav button.on{background:var(--ac);color:#fff}nav .sp{flex:1}
+main{padding:16px;max-width:1100px;margin:auto}section{display:none}section.on{display:block}
+.grid{display:grid;grid-template-columns:220px 1fr;gap:16px}@media(max-width:700px){.grid{grid-template-columns:1fr}}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:8px;padding:12px;margin-bottom:10px}
+.job{cursor:pointer}.job:hover{border-color:var(--ac)}.row{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.mut{color:var(--mut)}.tag{display:inline-block;padding:2px 8px;border-radius:99px;font-size:12px;border:1px solid var(--bd);margin:2px 4px 2px 0}
+.ok{color:var(--ok);border-color:var(--ok)}.warn{color:var(--warn);border-color:var(--warn)}.bad{color:var(--bad);border-color:var(--bad)}
+label{display:block;margin:8px 0}input[type=text],select,textarea{width:100%;padding:6px;border:1px solid var(--bd);border-radius:6px;background:var(--bg);color:var(--fg);font:inherit}
+button.p{background:var(--ac);color:#fff;border:0;padding:6px 12px;border-radius:6px;cursor:pointer;font:inherit}
+button.s{background:none;border:1px solid var(--bd);color:var(--fg);padding:3px 8px;border-radius:6px;cursor:pointer;font:inherit}
+.kan{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}@media(max-width:700px){.kan{grid-template-columns:1fr}}
+.kan h4{margin:0 0 8px}table{width:100%;border-collapse:collapse}td,th{text-align:left;padding:6px;border-bottom:1px solid var(--bd)}
+</style></head><body>
+<nav><b>🎯 JobPrep</b>
+<button class="on" data-t="feed">Jobs</button><button data-t="detail">Job Packet</button>
+<button data-t="track">Tracker</button><button data-t="prof">Profile &amp; Answers</button>
+<span class="sp"></span><button class="p" onclick="alert('Mock: would fetch Greenhouse/Lever/Ashby')">↻ Refresh</button></nav>
+<main>
+
+<section id="feed" class="on"><div class="grid">
+<aside class="card"><b>Filters</b>
+<label><input type="checkbox" checked> Sponsorship-friendly or unclear</label>
+<label><input type="checkbox" checked> Hide citizenship / clearance</label>
+<label><input type="checkbox" checked> Exclude space &amp; defense</label>
+<label><input type="checkbox" checked> Hide already applied</label>
+<label>Role<input type="text" value="intern, co-op, summer 2027"></label>
+<label><input type="checkbox" checked> Internships only (hide full-time)</label>
+<label>Location<select><option>US + Remote</option><option>Remote only</option></select></label>
+<label>Posted within<select><option>7 days</option><option>30 days</option></select></label>
+</aside>
+<div id="jobs"></div></div></section>
+
+<section id="detail"><div class="card"><div class="row"><div><h2 style="margin:0">Software Engineer Intern</h2><span class="mut">Stripe · Remote US · Greenhouse · 2d ago</span></div>
+<div><button class="s">Open posting ↗</button> <button class="p" onclick="alert('Mock: moved to Tracker as Applied')">Mark applied</button></div></div>
+<p><span class="tag ok">✅ Sponsor-friendly (“visa sponsorship available”)</span><span class="tag ok">Non-space</span><span class="tag">H-1B filings: 412 (2024)</span></p></div>
+<div class="grid" style="grid-template-columns:1fr 1fr">
+<div class="card"><b>Keywords for your resume</b><p class="mut">You have ✓ / Missing ✗</p>
+<span class="tag ok">✓ Python</span><span class="tag ok">✓ SQL</span><span class="tag ok">✓ REST APIs</span><span class="tag bad">✗ Kafka</span><span class="tag bad">✗ Ruby</span><span class="tag warn">~ distributed systems</span>
+<p class="mut">Match score: 72%</p></div>
+<div class="card"><b>Your answers (click to copy)</b><table>
+<tr><td>Need sponsorship?</td><td><button class="s" onclick="this.textContent='Copied'">No</button></td></tr>
+<tr><td>Worked here before?</td><td><button class="s" onclick="this.textContent='Copied'">No</button></td></tr>
+<tr><td>Work authorization</td><td><button class="s" onclick="this.textContent='Copied'">Authorized (F-1 CPT/OPT)</button></td></tr>
+<tr><td>Email</td><td><button class="s" onclick="this.textContent='Copied'">you@email.com</button></td></tr></table></div></div></section>
+
+<section id="track"><div class="kan" id="kan"></div></section>
+
+<section id="prof"><div class="grid" style="grid-template-columns:1fr 1fr">
+<div class="card"><b>Personal info</b><label>Name<input type="text" value="Gantumur Battumur"></label><label>Email<input type="text" value="you@email.com"></label><label>Phone<input type="text"></label><label>LinkedIn<input type="text"></label><label>Skills (comma)<textarea rows="3">Python, SQL, REST APIs</textarea></label></div>
+<div class="card"><b>Canned answers</b><label>Need sponsorship?<select><option>No</option><option>Yes</option></select></label>
+<label>Worked at company before?<select><option>No (default)</option></select></label>
+<label>Companies I worked at (override → Yes)<input type="text" placeholder="IBM, ..."></label>
+<label>Extra Q → A<textarea rows="4" placeholder="Question text => answer"></textarea></label><button class="p">Save</button></div></div></section>
+</main>
+<script>
+const jobs=[["Software Engineer Intern","Stripe","Remote US","ok","✅ Sponsor-friendly",72],["Data Engineer Intern","Datadog","NYC","warn","⚠️ Sponsorship unclear",64],["Backend Intern","Figma","SF","warn","⚠️ Sponsorship unclear",58],["SWE Intern","Anduril","CA","bad","❌ Defense / clearance",80]];
+document.getElementById('jobs').innerHTML=jobs.map(j=>`<div class="card job" onclick="show('detail')"><div class="row"><b>${j[0]}</b><span>${j[5]}% match</span></div><div class="mut">${j[1]} · ${j[2]}</div><span class="tag ${j[3]}">${j[4]}</span></div>`).join('');
+const cols={Saved:["Datadog – Data Eng Intern"],Applied:["Stripe – SWE Intern (Oct 18)"],Interview:["Notion – SWE Intern"],Rejected:["Meta – SWE Intern"]};
+document.getElementById('kan').innerHTML=Object.entries(cols).map(([k,v])=>`<div><h4>${k}</h4>${v.map(x=>`<div class="card">${x}<br><span class="mut">notes…</span></div>`).join('')}</div>`).join('');
+function show(t){document.querySelectorAll('section').forEach(s=>s.classList.toggle('on',s.id===t));document.querySelectorAll('nav button[data-t]').forEach(b=>b.classList.toggle('on',b.dataset.t===t))}
+document.querySelectorAll('nav button[data-t]').forEach(b=>b.onclick=()=>show(b.dataset.t));
+</script></body></html>

@@ -1,0 +1,68 @@
+# Detection dictionaries: what phrases mean. Your filter *choices* live in data/settings.yaml (edited from the UI).
+job_type:
+  internship: ["intern", "internship"]
+  coop: ["co-op", "coop"]
+education_title:   # matched as whole words in the title
+  phd: ["phd", "ph.d", "doctoral"]
+  mba: ["mba"]
+  undergrad_only: ["undergraduate", "undergrad", "sophomore", "freshman"]
+  high_school: ["high school"]
+education_text:    # matched anywhere in the description
+  undergrad_only: ["undergraduate only", "undergraduates only", "currently enrolled in a bachelor", "pursuing a bachelor",
+                   "rising senior", "rising junior", "undergraduate student"]
+  phd: ["phd candidates only", "enrolled in a phd program", "phd students only"]
+auth:
+  no_cpt: ["no cpt", "not eligible for cpt", "cpt is not", "not eligible for f-1", "f-1 students are not eligible",
+           "unable to sponsor student", "unable to support cpt"]
+  citizenship: ["u.s. citizen", "us citizen", "u.s. citizenship", "us citizenship", "citizenship required", "citizens only"]
+  green_card: ["permanent resident", "green card"]
+  clearance: ["security clearance", "secret clearance", "ts/sci", "clearance required", "active clearance"]
+  export_control: ["itar", "u.s. person", "us person", "u.s. persons", "us persons"]
+  no_future_sponsorship: ["will not sponsor", "unable to sponsor", "do not sponsor", "does not sponsor", "not able to sponsor",
+                          "no visa sponsorship", "sponsorship is not available", "now or in the future"]
+# A citizenship / green-card / US-person mention near one of these phrases is soft (a warning, not hidden)
+auth_soft_context: ["may need", "may be required", "may require", "might require", "otherwise eligible", "export license",
+                    "eligible to obtain", "employment-based immigrants", "if required", "for certain positions", "some positions"]
+warn:              # shown as warnings, never hidden
+  export_notice: ["export control", "export administration regulations", "deemed export"]
+cpt_friendly: ["cpt", "f-1", "f1 visa", "international student", "visa sponsorship available", "will sponsor", "opt eligible"]
+category:          # whole-word match in the title; a job can be in several
+  ai_ml: ["machine learning", "ml", "ai", "artificial intelligence", "deep learning", "nlp", "computer vision", "llm",
+          "applied scientist", "genai", "generative ai", "perception", "robotics learning"]
+  data_science: ["data science", "data scientist", "analytics", "analyst", "statistic", "statistics"]
+  data_eng: ["data engineer", "data engineering", "data platform", "etl"]
+  research: ["research", "researcher", "scientist"]
+  quant: ["quant", "quantitative", "trading", "trader"]
+  product: ["product manager", "product management", "apm", "pm"]
+  design: ["design", "designer", "ux", "ui/ux"]
+  swe: ["software", "engineer", "engineering", "developer", "backend", "frontend", "full stack", "fullstack",
+        "infrastructure", "platform", "mobile", "ios", "android", "sre", "devops", "security"]
+space:
+  companies: [spacex, blueorigin, "blue origin", rocketlab, "rocket lab", relativity, astra, maxar, lockheed, northrop, boeing,
+              anduril, "sierra space", firefly, planet, spire, raytheon, "general dynamics", "l3harris", palantir, "shield ai",
+              space, aerospace, defense, "missile", "space dynamics", "bae systems", leidos, "huntington ingalls", saic, "booz allen"]
+  keywords: [aerospace, satellite, "space exploration", "launch vehicle", "defense contractor", spacecraft, "department of defense", dod]
+# Location: US if any US marker matches; otherwise non-US if a foreign marker matches or it names no US place.
+us_locations: ["united states", "usa", "us", "u.s.", "remote - us", "remote us", "us remote", "nationwide",
+               alabama, alaska, arizona, arkansas, california, colorado, connecticut, delaware, florida, georgia, hawaii, idaho,
+               illinois, indiana, iowa, kansas, kentucky, louisiana, maine, maryland, massachusetts, michigan, minnesota,
+               mississippi, missouri, montana, nebraska, nevada, "new hampshire", "new jersey", "new mexico", "new york",
+               "north carolina", "north dakota", ohio, oklahoma, oregon, pennsylvania, "rhode island", "south carolina",
+               "south dakota", tennessee, texas, utah, vermont, virginia, washington, "west virginia", wisconsin, wyoming,
+               "district of columbia", "washington dc", "washington, dc",
+               "san francisco", "bay area", "palo alto", "mountain view", "menlo park", "sunnyvale", "san jose", "san mateo",
+               "redwood city", "los angeles", "san diego", seattle, bellevue, redmond, nyc, boston, cambridge, chicago, austin,
+               dallas, houston, denver, boulder, atlanta, miami, pittsburgh, philadelphia, portland, "salt lake city",
+               phoenix, minneapolis, detroit, "ann arbor", raleigh, durham, nashville, columbus, "jersey city", "foster city"]
+us_state_codes: [AL, AK, AZ, AR, CA, CO, CT, DE, FL, GA, HI, ID, IL, IN, IA, KS, KY, LA, ME, MD, MA, MI, MN, MS, MO, MT, NE,
+                 NV, NH, NJ, NM, NY, NC, ND, OH, OK, OR, PA, RI, SC, SD, TN, TX, UT, VT, VA, WA, WV, WI, WY, DC]
+non_us_locations: [london, dublin, ireland, "united kingdom", uk, england, toronto, vancouver, montreal, canada, ontario,
+                   india, bangalore, bengaluru, hyderabad, pune, singapore, germany, berlin, munich, paris, france, amsterdam,
+                   netherlands, sydney, melbourne, australia, tokyo, japan, mexico, brazil, "sao paulo", poland, warsaw, spain,
+                   madrid, barcelona, israel, "tel aviv", "hong kong", seoul, korea, china, beijing, shanghai, zurich, switzerland,
+                   stockholm, sweden, lisbon, portugal, emea, apac, latam, italy, milan, belgium, denmark, copenhagen, finland, qatar, doha, dubai, uae, "abu dhabi", "saudi arabia", riyadh,
+                   taiwan, taipei, vietnam, philippines, manila, indonesia, jakarta, malaysia, "kuala lumpur", thailand, bangkok,
+                   "new zealand", auckland, "south africa", nigeria, kenya, egypt, argentina, chile, colombia, bogota, peru,
+                   "costa rica", romania, bucharest, czech, prague, hungary, budapest, austria, vienna, greece, athens, turkey, istanbul,
+                   ukraine, kyiv, serbia, belgrade, scotland, edinburgh, wales, norway, oslo, estonia, tallinn, lithuania, latvia]
+lane_margin: 0.10  # secondary resume must beat the primary by this ratio to win

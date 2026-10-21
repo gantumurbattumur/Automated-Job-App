@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>JobPrep</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <div class="brand"><span class="logo">J</span>JobPrep</div>
+    <div class="status grow" id="srcStatus"></div>
+    <span id="refreshMsg" class="small mut"></span>
+    <button class="btn" id="refreshBtn" title="Fetch new postings from every source now">↻ Refresh</button>
+  </header>
+
+  <nav class="nav" id="nav">
+    <button data-page="home"><span class="ico">⌂</span>Home</button>
+    <button data-page="jobs"><span class="ico">☰</span>Jobs</button>
+    <button data-page="tracker"><span class="ico">▦</span>Tracker</button>
+    <button data-page="inbox"><span class="ico">✉</span>Inbox<span class="count hidden" id="inboxCount"></span></button>
+    <button data-page="profile"><span class="ico">☺</span>Profile</button>
+    <button data-page="settings"><span class="ico">⚙</span>Settings</button>
+    <div class="sep"></div>
+    <div class="foot">Local &amp; free · data stays on this Mac</div>
+  </nav>
+
+  <main class="main" id="main">
+    <section id="page-home"></section>
+    <section id="page-jobs" class="hidden">
+      <div class="jobs">
+        <aside class="filters" id="filters"></aside>
+        <div class="results">
+          <div class="bar">
+            <input type="text" id="q" placeholder="Search title, company, location…">
+            <select id="sort" style="width:auto" title="Sort">
+              <option value="score">Best match</option><option value="new">Newest</option>
+              <option value="relevance">Most relevant</option><option value="deadline">Deadline soonest</option>
+            </select>
+          </div>
+          <div class="row between small mut" style="margin-bottom:6px">
+            <span id="counts"></span>
+            <label class="check small"><input type="checkbox" id="showHidden"> show hidden &amp; why</label>
+          </div>
+          <div class="active-filters" id="activeFilters"></div>
+          <div class="list" id="list" tabindex="0"></div>
+          <div class="tiny faint" style="margin-top:6px"><span class="kbd">j</span>/<span class="kbd">k</span> move ·
+            <span class="kbd">a</span> apply · <span class="kbd">s</span> save · <span class="kbd">x</span> not interested</div>
+        </div>
+        <div class="detail" id="detail"></div>
+      </div>
+    </section>
+    <section id="page-tracker" class="hidden"></section>
+    <section id="page-inbox" class="hidden"></section>
+    <section id="page-profile" class="hidden"></section>
+    <section id="page-settings" class="hidden"></section>
+  </main>
+</div>
+
+<dialog id="askDialog">
+  <h2 id="askTitle">Did you apply?</h2>
+  <p class="mut" id="askBody"></p>
+  <div class="row">
+    <button class="btn primary" data-answer="applied">Yes, I applied</button>
+    <button class="btn" data-answer="opened">Not yet</button>
+    <button class="btn" data-answer="dismissed">Not interested</button>
+  </div>
+</dialog>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

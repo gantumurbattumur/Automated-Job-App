@@ -1,0 +1,5 @@
+# USCIS H-1B Employer Data Hub exports (https://www.uscis.gov/tools/reports-and-studies/h-1b-employer-data-hub).
+# Add newer years here; the app rebuilds data/h1b_sponsors.json when these files change.
+files:
+  - "~/GANA/projects/h1b_lottery_stats/Employer Information-2025.xlsx"
+  - "~/GANA/projects/h1b_lottery_stats/Employer Information-2026.xlsx"

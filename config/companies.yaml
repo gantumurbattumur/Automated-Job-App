@@ -1,0 +1,9 @@
+# Company job boards to poll (only internship/co-op titles are stored).
+# Boards that appear in the SimplifyJobs list are added automatically when discover_from_simplify is on.
+discover_from_simplify: true
+greenhouse: [stripe, datadog, figma, airbnb, databricks, anthropic, scaleai, instacart, robinhood, coinbase]
+lever: []
+ashby: []
+workday: []          # "tenant|wdN|site", e.g. "nvidia|wd5|NVIDIAExternalCareerSite"
+smartrecruiters: []  # company identifier from jobs.smartrecruiters.com/<id>/...
+workable: []         # account slug from apply.workable.com/<slug>/...

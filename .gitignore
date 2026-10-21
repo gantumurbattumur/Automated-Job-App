@@ -1,0 +1,8 @@
+data/
+.venv/
+*.db
+.DS_Store
+__pycache__/
+node_modules/
+*.db-wal
+*.db-shm

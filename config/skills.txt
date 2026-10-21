@@ -1,0 +1,101 @@
+# One skill per line: canonical | alias | alias…  (matched as whole words, case-insensitive)
+python
+java
+c++ | cpp
+c#
+golang
+rust
+javascript | js
+typescript
+sql
+scala
+kotlin
+swift
+matlab
+bash | shell scripting
+html
+css
+react | react.js | reactjs
+next.js | nextjs
+node.js | nodejs
+vue | vue.js
+angular
+tailwind | tailwind css
+fastapi
+flask
+django
+spring boot | spring framework
+graphql
+rest | rest api | rest apis | restful
+grpc
+microservices
+distributed systems
+postgresql | postgres
+mysql
+mongodb
+redis
+elasticsearch
+kafka
+spark | pyspark | apache spark
+airflow
+dbt
+snowflake
+bigquery
+databricks
+hadoop
+etl
+data pipelines | data pipeline
+pandas
+numpy
+scikit-learn | sklearn | scikit learn
+pytorch
+tensorflow
+jax
+keras
+hugging face | huggingface | transformers
+langchain
+langgraph
+llamaindex
+llm | llms | large language models | large language model
+rag | retrieval-augmented generation | retrieval augmented generation
+embeddings | embedding
+vector database | vector databases | vector db | faiss | pinecone | weaviate | milvus | chroma
+prompt engineering | prompt design
+fine-tuning | fine tuning | finetuning | lora
+rlhf
+llm evaluation | evals | model evaluation
+ai agents | agentic | llm agents
+nlp | natural language processing
+computer vision | opencv
+deep learning
+machine learning | ml
+reinforcement learning
+recommendation systems | recommender systems
+statistics | statistical
+a/b testing | ab testing | experimentation
+data analysis | data analytics
+data visualization | tableau | power bi
+cuda
+gpu | gpus
+mlops
+model serving | inference
+docker
+kubernetes | k8s
+aws | amazon web services | ec2 | s3 | lambda
+gcp | google cloud
+azure
+terraform
+ci/cd | ci cd | continuous integration
+github actions
+linux
+git | github
+unit testing | pytest | junit | testing
+agile | scrum
+openai | openai api | gpt-4 | gpt
+android
+ios
+embedded | firmware
+fpga | verilog | vhdl
+robotics | ros
+networking | tcp/ip
+security | cybersecurity

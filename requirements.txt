@@ -1,0 +1,12 @@
+fastapi
+uvicorn[standard]
+sqlmodel
+httpx
+pyyaml
+pdfplumber
+fastembed
+scikit-learn
+keyring
+openpyxl
+playwright
+pytest

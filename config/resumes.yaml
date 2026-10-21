@@ -1,0 +1,10 @@
+primary: ai_ml
+lanes:
+  ai_ml: "data/resume/AI-ML/Resume_Gana_Battumur.pdf"
+  swe: "data/resume/SWE/Resume_Gana_Battumur.pdf"
+# on-campus resume intentionally excluded from external matching
+# Title keywords that mark a job as on-target for each resume (title-match part of relevance)
+targets:
+  ai_ml: ["machine learning", "ml", "ai", "artificial intelligence", "llm", "nlp", "data science", "data scientist",
+          "applied scientist", "research", "genai", "deep learning", "computer vision", "data"]
+  swe: ["software", "backend", "full stack", "fullstack", "platform", "infrastructure", "developer", "engineer"]
