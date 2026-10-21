@@ -92,16 +92,17 @@ const FILTERS = [
     { k: 'stale_days', t: 'num', l: 'Warn when open longer than (days)', h: '0 = off' }]],
 ];
 const SETTINGS_GROUPS = [
-  ['Refresh', 'How often JobPrep checks for new postings.', [
-    { k: 'refresh_simplify_minutes', t: 'num', l: 'SimplifyJobs list every (minutes)', h: '0 = off' },
-    { k: 'refresh_ats_minutes', t: 'num', l: 'Company job boards every (minutes)', h: '~930 boards, takes ~3 minutes. 0 = off' }]],
+  ['Schedule', 'When JobPrep fetches postings, scans Gmail and tidies up. “Once a day” does everything in one morning run (~5 min, ~0.2 GB) so your list is ready when you sit down.', [
+    { k: 'schedule', t: 'select', l: 'Run', o: { daily: 'Once a day (recommended)', interval: 'Every few minutes (uses much more data)' } },
+    { k: 'daily_time', t: 'time', l: 'Morning run at (local time)', h: 'If your Mac is asleep then, it runs as soon as it wakes up.' },
+    { k: 'refresh_simplify_minutes', t: 'num', l: 'SimplifyJobs list every (minutes)', h: 'Only in “every few minutes” mode. 0 = off', mode: 'interval' },
+    { k: 'refresh_ats_minutes', t: 'num', l: 'Company job boards every (minutes)', h: 'Only in “every few minutes” mode. ~970 boards, ~200 MB per run', mode: 'interval' },
+    { k: 'gmail_scan_minutes', t: 'num', l: 'Gmail scan every (minutes)', h: 'Only in “every few minutes” mode', mode: 'interval' }]],
   ['Alerts', 'Mac notifications.', [
-    { k: 'notify', t: 'bool', l: 'Notify me about strong new matches' },
-    { k: 'notify_min_score', t: 'num', l: 'Only when score is at least' },
-    { k: 'digest', t: 'bool', l: 'Morning digest with the day’s top 10' },
-    { k: 'digest_hour', t: 'num', l: 'Digest hour (0–23, local time)' }]],
-  ['Gmail', 'Read-only scan that updates the tracker. Connect it on the Inbox page.', [
-    { k: 'gmail_scan_minutes', t: 'num', l: 'Scan every (minutes)' }]],
+    { k: 'digest', t: 'bool', l: 'Notify me when the morning list is ready (top 10 new matches)' },
+    { k: 'notify', t: 'bool', l: 'Also notify about each strong new match during a refresh', mode: 'interval' },
+    { k: 'notify_min_score', t: 'num', l: 'Only when score is at least', h: 'Only in “every few minutes” mode; daily mode sends one summary', mode: 'interval' },
+    { k: 'digest_hour', t: 'num', l: 'Digest hour (0–23)', h: 'Only in “every few minutes” mode; daily mode sends it right after the morning run', mode: 'interval' }]],
   ['Maintenance', 'Keeps the local database small and backed up.', [
     { k: 'prune_closed_days', t: 'num', l: 'Delete closed postings after (days)', h: 'Jobs in your tracker are never deleted. 0 = keep forever' },
     { k: 'weekly_backup', t: 'bool', l: 'Weekly backup of the database (keeps 4)' }]],
@@ -131,7 +132,10 @@ window.addEventListener('hashchange', () => go(location.hash.slice(1)));
 // ---------- top bar: source status + refresh ----------
 async function loadStatus() {
   const st = await api('/status');
-  $('#srcStatus').innerHTML = [['simplify', 'SimplifyJobs'], ['ats', 'Company boards']].map(([k, l]) => {
+  const sch = st.schedule, m = st.morning;
+  const chip = sch?.mode === 'daily' ? (m?.running ? '<span class="tag ac"><span class="spin"></span> Morning run in progress</span>'
+    : `<span class="tag ${sch.done_today ? 'ok' : ''}" title="Everything is fetched once a day; change it in Settings">${sch.done_today ? `✓ Today’s list ready${m?.last_run ? ` (${new Date(m.last_run).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })})` : ''}` : `Next run ${sch.daily_time}`}</span>`) : '';
+  $('#srcStatus').innerHTML = chip + [['simplify', 'SimplifyJobs'], ['ats', 'Company boards']].map(([k, l]) => {
     const v = st[k]; if (!v) return `<span class="tag">${l}: not yet</span>`;
     if (v.running) return `<span class="tag ac"><span class="spin"></span> ${l}: refreshing</span>`;
     return `<span class="tag ${v.error ? 'bad' : ''}" title="${esc(v.error || `+${v.added} new · ${v.closed} closed · ${v.enriched} descriptions filled${v.boards ? ` · ${v.boards} boards` : ''}`)}">${l}: ${ago(v.last_run)}${v.added ? ` · +${v.added}` : ''}</span>`;
@@ -195,7 +199,7 @@ async function renderHome() {
 }
 const kpi = (v, l) => `<div class="card kpi"><div class="v">${v}</div><div class="l">${l}</div></div>`;
 function sourceList(st) {
-  return [['simplify', 'SimplifyJobs internship list'], ['ats', 'Company job boards'], ['gmail', 'Gmail scan'], ['digest', 'Morning digest'], ['maintenance', 'Cleanup & backup']]
+  return [['morning', 'Morning run (everything)'], ['simplify', 'SimplifyJobs internship list'], ['ats', 'Company job boards'], ['gmail', 'Gmail scan'], ['digest', 'Morning digest'], ['maintenance', 'Cleanup & backup']]
     .map(([k, l]) => { const v = st[k]; return `<div class="row between" style="padding:3px 0"><span>${l}</span><span class="${v?.error ? 'bad' : 'mut'}">${v ? (v.running ? 'running…' : `${ago(v.last_run)}${v.error ? ' · error' : ''}`) : 'not yet'}</span></div>`; }).join('');
 }
 function jobRow(j) {
@@ -228,14 +232,16 @@ async function loadSettings() {
 }
 function fieldHtml(f) {
   const v = getk(f.k);
-  if (f.t === 'bool') return `<label class="check f"><input type="checkbox" data-k="${f.k}" ${v ? 'checked' : ''}><span>${esc(f.l)}</span></label>`;
+  if (f.t === 'bool') return `<label class="check f" ${f.mode && f.mode !== S.schedule ? 'style="opacity:.5"' : ''}><input type="checkbox" data-k="${f.k}" ${v ? 'checked' : ''}><span>${esc(f.l)}</span></label>`;
   let h = '';
   if (f.t === 'multi') h = `<div class="opts">${Object.entries(f.o).map(([k, l]) => `<label><input type="checkbox" data-k="${f.k}" value="${esc(k)}" ${v.includes(k) ? 'checked' : ''}>${esc(l)}</label>`).join('')}</div>`;
   if (f.t === 'list') h = `<input type="text" data-k="${f.k}" value="${esc(v.join(', '))}">`;
   if (f.t === 'num') h = `<input type="number" data-k="${f.k}" value="${v}" min="0">`;
+  if (f.t === 'time') h = `<input type="time" data-k="${f.k}" value="${esc(v)}" style="max-width:160px">`;
   if (f.t === 'select') h = `<select data-k="${f.k}">${Object.entries(f.o).map(([k, l]) => `<option value="${esc(k)}" ${String(v) === k ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>`;
   if (f.t === 'range') h = `<div class="range-row"><input type="range" data-k="${f.k}" min="0" max="1" step="0.05" value="${v}"><output>${v}</output></div>`;
-  return `<div class="f"><div class="l">${esc(f.l)}</div>${h}${f.h ? `<div class="hint">${esc(f.h)}</div>` : ''}</div>`;
+  const off = f.mode && f.mode !== S.schedule;  // e.g. minute intervals while the daily schedule is on
+  return `<div class="f" ${off ? 'style="opacity:.5"' : ''}><div class="l">${esc(f.l)}</div>${h}${f.h ? `<div class="hint">${esc(f.h)}</div>` : ''}</div>`;
 }
 function bindFields(root, onChange) {
   $$('[data-k]', root).forEach(el => {
@@ -629,7 +635,9 @@ async function renderSettings() {
         <span>Personal files</span><span><code>data/</code> — resumes, profile, settings, backups, model</span>
         <span>Leaves the Mac</span><span>Only requests for public job listings, the pages you open, and Gmail reads if connected.</span></div></div></div>
     </div>`;
-  bindFields($('#page-settings'), async () => { try { S = await put('/settings', S); toast('Saved'); } catch (e) { toast(e.message); } });
+  bindFields($('#page-settings'), async () => { try { const mode = S.schedule; S = await put('/settings', S); toast('Saved'); if (mode !== st.schedule?.mode) renderSettings(); } catch (e) { toast(e.message); } });
+  $('#page-settings .card .hd h2').insertAdjacentHTML('afterend', '<button class="btn sm" id="runMorning">Run morning routine now</button>');
+  $('#runMorning').onclick = async () => { const r = await post('/refresh?source=morning'); toast(r.started ? 'Morning routine started — takes a few minutes' : 'Already running'); };
   if ($('#backupNow')) $('#backupNow').onclick = async () => { const r = await post('/maintenance/backup'); toast(`Backed up to ${r.path.split('/').slice(-2).join('/')}`); };
 }
 

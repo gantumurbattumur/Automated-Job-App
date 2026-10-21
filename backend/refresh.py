@@ -143,8 +143,8 @@ def _fetch_ats(client: httpx.Client, result: dict) -> dict[str, tuple[list[Job],
 
 def _notify(new_ids: list[str]) -> None:
     st = settings.get()
-    if not (st.notify and new_ids and sys.platform == "darwin"):
-        return
+    if st.schedule == "daily" or not (st.notify and new_ids and sys.platform == "darwin"):
+        return  # daily mode: one "your morning list is ready" digest instead of an alert per job
     ids = set(new_ids)
     hits = [x for x in feed.build(st) if x["id"] in ids and not x["hidden_reasons"] and x["score"] >= st.notify_min_score]
     if not hits:
@@ -205,35 +205,69 @@ def _due(source: str, minutes: int) -> bool:
     return minutes > 0 and (last is None or (datetime.now(timezone.utc) - last).total_seconds() >= minutes * 60)
 
 
+def _step(name: str, fn) -> None:
+    """Run one scheduled job, record how it went, and never let a failure stop the scheduler."""
+    try:
+        status[name] = {"last_run": datetime.now(timezone.utc), **(fn() or {})}
+    except Exception as e:
+        log.exception("%s failed", name)
+        status[name] = {"last_run": datetime.now(timezone.utc), "error": str(e)}
+    _save_status()
+
+
+def _maintenance(st) -> dict:
+    out = {"pruned": maintenance.prune(st.prune_closed_days), "backup": maintenance.backup() if st.weekly_backup else None}
+    feed.invalidate()
+    return out
+
+
+def daily_due(daily_time: str, last: dict | None, now: datetime | None = None) -> bool:
+    """True once per day at/after `daily_time` (local "HH:MM"). If the Mac was asleep then, it runs on wake-up."""
+    now = now or datetime.now()
+    hh, mm = (int(x) for x in daily_time.split(":"))
+    return (now.hour, now.minute) >= (hh, mm) and (not last or last.get("date") != now.date().isoformat())
+
+
+def morning_run() -> dict:
+    """Everything, once, in order, so the list is complete when you sit down: postings -> boards -> email -> cleanup -> digest."""
+    st = settings.get()
+    status["morning"] = {**status.get("morning", {}), "running": True}
+    started = datetime.now(timezone.utc)
+    for source in ("simplify", "ats"):
+        try:
+            run(source)
+        except Exception:
+            log.exception("refresh %s failed", source)
+    if gmail.address():
+        _step("gmail", gmail.scan)
+    _step("maintenance", lambda: _maintenance(st))
+    if st.digest:
+        _step("digest", digest.notify)
+    status["morning"] = {"last_run": started, "date": datetime.now().date().isoformat(), "running": False,
+                         "minutes": round((datetime.now(timezone.utc) - started).total_seconds() / 60, 1)}
+    _save_status()
+    return status["morning"]
+
+
 def _loop() -> None:
     while True:
         st = settings.get()
-        for source, minutes in (("simplify", st.refresh_simplify_minutes), ("ats", st.refresh_ats_minutes)):
-            if _due(source, minutes):
-                try:
-                    run(source)
-                except Exception:  # never let one bad run kill the scheduler
-                    log.exception("refresh %s failed", source)
-        if st.digest and digest.due(status.get("digest"), st.digest_hour):
-            try:
-                status["digest"] = digest.notify()
-            except Exception:
-                log.exception("digest failed")
-            _save_status()
-        if _due("maintenance", 24 * 60):
-            try:
-                status["maintenance"] = {"last_run": datetime.now(timezone.utc), "pruned": maintenance.prune(st.prune_closed_days),
-                                         "backup": maintenance.backup() if st.weekly_backup else None}
-                feed.invalidate()
-            except Exception as e:
-                status["maintenance"] = {"last_run": datetime.now(timezone.utc), "error": str(e)}
-            _save_status()
-        if gmail.address() and _due("gmail", st.gmail_scan_minutes):
-            try:
-                status["gmail"] = {"last_run": datetime.now(timezone.utc), **gmail.scan()}
-            except Exception as e:
-                status["gmail"] = {"last_run": datetime.now(timezone.utc), "error": str(e)}
-            _save_status()
+        if st.schedule == "daily":
+            if daily_due(st.daily_time, status.get("morning")):
+                morning_run()
+        else:
+            for source, minutes in (("simplify", st.refresh_simplify_minutes), ("ats", st.refresh_ats_minutes)):
+                if _due(source, minutes):
+                    try:
+                        run(source)
+                    except Exception:  # never let one bad run kill the scheduler
+                        log.exception("refresh %s failed", source)
+            if st.digest and digest.due(status.get("digest"), st.digest_hour):
+                _step("digest", digest.notify)
+            if _due("maintenance", 24 * 60):
+                _step("maintenance", lambda: _maintenance(st))
+            if gmail.address() and _due("gmail", st.gmail_scan_minutes):
+                _step("gmail", gmail.scan)
         time.sleep(60)
 
 

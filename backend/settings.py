@@ -2,7 +2,7 @@
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from .config import DATA
 
@@ -72,6 +72,8 @@ class Settings(BaseModel):
     new_badge_hours: int = 48
     allow_boost: float = 10
     # refresh & alerts
+    schedule: Literal["daily", "interval"] = "daily"  # daily: everything once a morning; interval: the minute settings below
+    daily_time: str = Field("06:00", pattern=r"^([01]\d|2[0-3]):[0-5]\d$")  # local time
     refresh_simplify_minutes: int = 15  # 0 = off
     refresh_ats_minutes: int = 60
     notify: bool = True  # macOS notification for strong new matches

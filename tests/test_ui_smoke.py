@@ -126,6 +126,11 @@ def test_ui_end_to_end(server):
         assert any(a["company"] == "Acme AI" and a["status"] == "rejected" for a in apps)
         page.click("#nav [data-page=settings]")
         page.wait_for_selector("#page-settings >> text=Run at login")
+        assert page.input_value("#page-settings input[data-k=daily_time]") == "06:00"
+        page.fill("#page-settings input[data-k=daily_time]", "07:30")
+        page.locator("#page-settings input[data-k=daily_time]").dispatch_event("change")
+        page.wait_for_timeout(800)
+        assert httpx.get(f"{server}/settings").json()["daily_time"] == "07:30"
 
         # phone width: no horizontal scroll
         page.set_viewport_size({"width": 390, "height": 844})

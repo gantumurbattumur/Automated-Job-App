@@ -1,5 +1,6 @@
 import subprocess
 import sys
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -28,7 +29,13 @@ def _startup():
 
 @app.post("/refresh")
 def refresh(source: str = "all", wait: bool = False):
-    """Starts in the background (polling ~900 boards takes minutes); watch /status. `wait` runs inline."""
+    """Starts in the background (polling ~900 boards takes minutes); watch /status. `wait` runs inline.
+    source=morning runs the full morning routine (postings, boards, Gmail, cleanup, digest)."""
+    if source == "morning":
+        if refresh_mod.status.get("morning", {}).get("running"):
+            return {"started": False, "reason": "already running"}
+        threading.Thread(target=refresh_mod.morning_run, daemon=True).start()
+        return {"started": True, "sources": ["morning"]}
     if wait:
         return {s: refresh_mod.run(s) for s in (["simplify", "ats"] if source == "all" else [source])}
     return refresh_mod.run_async(source)
@@ -36,7 +43,9 @@ def refresh(source: str = "all", wait: bool = False):
 
 @app.get("/status")
 def status():
-    return refresh_mod.status
+    st = settings.get()
+    return {**refresh_mod.status, "schedule": {"mode": st.schedule, "daily_time": st.daily_time,
+                                               "done_today": not refresh_mod.daily_due("00:00", refresh_mod.status.get("morning"))}}
 
 
 @app.get("/jobs")

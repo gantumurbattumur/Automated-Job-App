@@ -129,3 +129,15 @@ def test_resume_bullets_are_whole():
     assert relevance._lines(text) == ["Built a thing that does a lot of useful work across many wrapped lines of text.",
                                       "Second bullet that is also long enough to count here.",
                                       "Third one, long enough to be a bullet in the list ok."]
+
+
+def test_daily_schedule_runs_once_after_time_and_catches_up():
+    from backend.refresh import daily_due
+    at = lambda h, m: datetime(2026, 10, 21, h, m)  # noqa: E731
+    assert not daily_due("06:00", None, at(5, 59))
+    assert daily_due("06:00", None, at(6, 0))
+    assert daily_due("06:00", {"date": "2026-10-20"}, at(9, 30))  # Mac was asleep at 6: runs on wake-up
+    assert not daily_due("06:00", {"date": "2026-10-21"}, at(23, 0))  # once per day
+    with pytest.raises(Exception):
+        Settings(daily_time="6am")
+    assert Settings().schedule == "daily" and Settings().daily_time == "06:00"

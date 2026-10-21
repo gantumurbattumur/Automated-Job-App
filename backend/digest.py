@@ -15,9 +15,10 @@ def top(hours: int = 24, n: int = 10) -> list[dict]:
 
 def notify() -> dict:
     jobs = top()
-    if jobs and sys.platform == "darwin":
-        best = jobs[0]
-        msg = f"{len(jobs)} new matches. Top: {best['title']} · {best['company']} ({best['score']:g})"
+    if sys.platform == "darwin":
+        best = jobs[0] if jobs else None
+        msg = (f"Your morning list is ready: {len(jobs)} new matches. Top: {best['title']} · {best['company']} ({best['score']:g})"
+               if best else "Your morning list is ready: no new matches since yesterday.")
         subprocess.run(["osascript", "-e", "on run argv", "-e",
                         'display notification (item 1 of argv) with title "JobPrep: today\'s matches"', "-e", "end run", msg],
                        check=False, capture_output=True)
