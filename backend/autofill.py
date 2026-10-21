@@ -262,9 +262,9 @@ def main(job_id: str) -> None:
     from .feed import build
     from .settings import get as get_settings
     row = next((x for x in build(get_settings()) if x["id"] == job_id), {})
-    lanes = load("resumes")["lanes"]
-    lane = row.get("best_lane") if row.get("best_lane") in lanes else load("resumes")["primary"]
-    resume_path = str(ROOT / lanes[lane])
+    from . import resume
+    lane = row.get("best_lane") if row.get("best_lane") in resume.names() else resume.primary()
+    resume_path = str(resume.path(lane))
 
     with sync_playwright() as pw:
         ctx = pw.chromium.launch_persistent_context(str(DATA / "browser-profile"), headless=False,

@@ -21,6 +21,9 @@ SEED = """
 from datetime import datetime, timedelta, timezone
 from backend.models import InboxItem, Job, init_db, session
 init_db()
+from backend import resume
+resume.add("AI/ML", "resume.txt", (("M.S. computer science student. Machine learning, Python, PyTorch, LLM evaluation, "
+           "retrieval-augmented generation, FastAPI, SQL, Docker. ") * 4).encode(), ["machine learning", "data", "ml"])
 now = datetime.now(timezone.utc)
 with session() as s:
     s.add(Job(id="greenhouse:acme:1", source="greenhouse", company="Acme AI", title="Machine Learning Intern (Summer 2027)",
@@ -106,6 +109,18 @@ def test_ui_end_to_end(server):
         page.click("#nav [data-page=tracker]")
         page.wait_for_selector(".tcard", timeout=30000)
         assert "Acme AI" in page.inner_text(".col[data-col=saved]")
+
+        # resumes: upload a new version -> re-ranked, impact report, old version kept
+        page.click("#nav [data-page=resumes]")
+        page.wait_for_selector("#page-resumes >> text=Skills found")
+        new = tmp_resume = Path(__file__).parent / "_tmp_resume.txt"
+        tmp_resume.write_text(("Data analyst: SQL, pandas, statistics, Tableau, A/B testing, dashboards. ") * 6)
+        try:
+            page.set_input_files("#page-resumes input[data-replace]", str(new))
+            page.wait_for_selector("#page-resumes >> text=What changed in your top", timeout=120000)
+        finally:
+            tmp_resume.unlink()
+        assert "Earlier versions (1)" in page.inner_text("#page-resumes") and "pandas" in page.inner_text("#page-resumes")
 
         # profile save round-trip
         page.click("#nav [data-page=profile]")

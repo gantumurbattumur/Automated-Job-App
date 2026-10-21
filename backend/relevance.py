@@ -69,11 +69,10 @@ def _chunks(text: str) -> list[str]:
 @lru_cache
 def lanes() -> dict[str, dict]:
     from . import resume
-    cfg = load("resumes")
+    tg = resume.targets()
     out = {}
     for name, text in resume.lane_texts().items():
-        out[name] = {"vecs": embed(_chunks(text)), "skills": skills_in(text),
-                     "targets": [t.lower() for t in (cfg.get("targets") or {}).get(name, [])]}
+        out[name] = {"vecs": embed(_chunks(text)), "skills": skills_in(text), "targets": [t.lower() for t in tg.get(name, [])]}
     return out
 
 
@@ -126,6 +125,8 @@ def score(jobs: list[Job], primary: str, margin: float, forced: str | None = Non
     """{job_id: {relevance 0-1, lane, matched, missing, parts}}. Primary lane wins unless another beats it by `margin`."""
     if not jobs:
         return {}
+    if not lanes():  # no resume uploaded yet: rank by freshness / CPT only
+        return {j.id: {"relevance": 0.0, "lane": "?", "matched": [], "missing": [], "parts": {}} for j in jobs}
     vecs = ensure_vectors(jobs)
     J = np.stack([vecs[j.id] for j in jobs])
     L = lanes()

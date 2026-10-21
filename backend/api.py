@@ -4,14 +4,14 @@ import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sqlmodel import select
 
-from . import digest, feed, gmail, maintenance, profile, settings, tracker
+from . import digest, feed, gmail, maintenance, profile, resume, settings, tracker
 from . import refresh as refresh_mod
 from .config import DATA, ROOT, load
 from .models import Application, InboxItem, Job, init_db, session
@@ -79,7 +79,8 @@ def settings_defaults() -> Settings:
 
 @app.get("/settings/options")
 def options():
-    return {"lanes": ["auto", *load("resumes")["lanes"]]}
+    return {"lanes": ["auto", *resume.names()],
+            "labels": {n: l.get("label") or n for n, l in resume.config()["lanes"].items()}}
 
 
 @app.get("/presets")
@@ -115,11 +116,10 @@ def packet(job_id: str):
     if not j:
         raise HTTPException(404, "unknown job")
     row = next((x for x in feed.build_cached(settings.get()) if x["id"] == job_id), {})
-    lanes = load("resumes")["lanes"]
-    lane = row.get("best_lane") if row.get("best_lane") in lanes else load("resumes")["primary"]
+    lane = row.get("best_lane") if row.get("best_lane") in resume.names() else resume.primary()
     p = profile.get()
     return {"job": {"id": j.id, "company": j.company, "title": j.title, "url": j.url},
-            "resume": {"lane": lane, "url": f"/resume/{lane}", "file": Path(lanes[lane]).name},
+            "resume": {"lane": lane, "url": f"/resume/{lane}", "file": resume.path(lane).name},
             "skills": {"matched": row.get("skills_matched", []), "missing": row.get("skills_missing", [])},
             "worked_here": profile.worked_at(j.company, p),
             "fields": profile.fields(p), "answers": profile.answers_for(j.company, p)}
@@ -163,13 +163,13 @@ def home():
 
 @app.get("/jobs/{job_id}/resume-help")
 def resume_help(job_id: str):
-    from . import relevance, resume
+    from . import relevance
     with session() as s:
         j = s.get(Job, job_id)
     if not j:
         raise HTTPException(404, "unknown job")
     h = relevance.resume_help(j)
-    h["prompt"] = relevance.claude_prompt(j, h, resume.lane_texts()[h["lane"]])
+    h["prompt"] = relevance.claude_prompt(j, h, resume.text(h["lane"]))
     return h
 
 
@@ -188,12 +188,91 @@ def backup_now():
     return {"path": maintenance.backup(force=True)}
 
 
+def _top(n: int = 50) -> list[dict]:
+    return [r for r in feed.build(settings.get()) if not r["hidden_reasons"]][:n]
+
+
+def _impact(before: list[dict]) -> dict:
+    """How a resume change moved your top matches (same filters, re-ranked with the new text)."""
+    after = _top(len(before) or 50)
+    b_ids, a_ids = {r["id"] for r in before}, {r["id"] for r in after}
+    avg = lambda rows, k: round(sum(r[k] for r in rows) / len(rows), 1 if k == "score" else 3) if rows else 0  # noqa: E731
+    pick = lambda r: {"id": r["id"], "title": r["title"], "company": r["company"], "score": r["score"]}  # noqa: E731
+    return {"top_n": len(after), "avg_score_before": avg(before, "score"), "avg_score_after": avg(after, "score"),
+            "avg_match_before": avg(before, "relevance"), "avg_match_after": avg(after, "relevance"),
+            "entered": [pick(r) for r in after if r["id"] not in b_ids][:8],
+            "left": [pick(r) for r in before if r["id"] not in a_ids][:8]}
+
+
+def _resume_view(name: str, lane: dict, primary: str) -> dict:
+    from . import relevance
+    p = resume.path(name)
+    exists = p.exists()
+    text = resume.text(name) if exists else ""
+    return {"name": name, "label": lane.get("label") or name, "primary": name == primary, "file": p.name, "exists": exists,
+            "uploaded_at": lane.get("uploaded_at"), "size_kb": round(p.stat().st_size / 1024) if exists else 0,
+            "pages": resume.pages(p) if exists else None, "words": len(text.split()),
+            "skills": sorted(relevance.skills_in(text)), "targets": lane.get("targets") or [], "versions": resume.versions(name),
+            "preview": text[:1200]}
+
+
+@app.get("/resumes")
+def list_resumes():
+    cfg = resume.config()
+    return {"primary": cfg["primary"], "resumes": [_resume_view(n, l, cfg["primary"]) for n, l in cfg["lanes"].items()]}
+
+
+def _resume_change(fn):
+    before = _top()
+    try:
+        fn()
+    except KeyError:
+        raise HTTPException(404, "unknown resume or version")
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    return {**list_resumes(), "impact": _impact(before)}
+
+
+@app.post("/resumes")
+async def add_resume(label: str = Form(...), file: UploadFile = File(...), targets: str = Form("")):
+    data = await file.read()
+    return _resume_change(lambda: resume.add(label, file.filename or "resume.pdf", data, [t for t in targets.split(",") if t.strip()]))
+
+
+@app.put("/resumes/{lane}/file")
+async def replace_resume(lane: str, file: UploadFile = File(...)):
+    data = await file.read()
+    return _resume_change(lambda: resume.replace(lane, file.filename or "resume.pdf", data))
+
+
+class ResumeUpdate(BaseModel):
+    label: str | None = None
+    targets: list[str] | None = None
+    primary: bool = False
+
+
+@app.put("/resumes/{lane}")
+def update_resume(lane: str, body: ResumeUpdate):
+    return _resume_change(lambda: resume.update(lane, body.label, body.targets, body.primary))
+
+
+@app.post("/resumes/{lane}/revert")
+def revert_resume(lane: str, version: str):
+    return _resume_change(lambda: resume.revert(lane, version))
+
+
+@app.delete("/resumes/{lane}")
+def delete_resume(lane: str):
+    return _resume_change(lambda: resume.delete(lane))
+
+
 @app.get("/resume/{lane}")
 def resume_file(lane: str):
-    lanes = load("resumes")["lanes"]
-    if lane not in lanes:
+    if lane not in resume.names():
         raise HTTPException(404, "unknown resume")
-    return FileResponse(ROOT / lanes[lane], media_type="application/pdf", filename=Path(lanes[lane]).name)
+    p = resume.path(lane)
+    media = {".pdf": "application/pdf", ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"}
+    return FileResponse(p, media_type=media.get(p.suffix.lower(), "text/plain"), filename=p.name)
 
 
 class AppUpdate(BaseModel):

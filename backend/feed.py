@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 
 from sqlmodel import select
 
-from . import h1b, personal, ranking, relevance
+from . import h1b, personal, ranking, relevance, resume
 from .config import ROOT, load
 from .filters import _word, apply, classify, parse_deadline
 from .models import Application, Job, session
@@ -56,10 +56,9 @@ def _analyze(jobs: list[Job], st: Settings):
             if not hit or hit[0] != sig:
                 hit = cached[j.id] = (sig, classify(j.title, j.company, j.description, j.location, rules, j.meta))
             flags[j.id] = hit[1]
-        lanes = load("resumes")["lanes"]
-        forced = st.lane if st.lane in lanes else None
+        forced = st.lane if st.lane in resume.names() else None
         if forced not in _cache["rel"]:
-            _cache["rel"][forced] = relevance.score(jobs, load("resumes")["primary"], rules["lane_margin"], forced)
+            _cache["rel"][forced] = relevance.score(jobs, resume.primary(), rules["lane_margin"], forced)
         rel = _cache["rel"][forced]
     return flags, rel
 

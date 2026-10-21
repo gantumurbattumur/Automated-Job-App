@@ -21,8 +21,9 @@ uv pip install --python .venv/bin/python fastapi "uvicorn[standard]" sqlmodel ht
 - **Jobs** – filters (left) · ranked list (middle, `j`/`k` to move) · details (right): why it ranks there, F-1/CPT eligibility,
   H-1B history, resume help (which resume, which bullets to lead with, skill gaps, a copyable Claude prompt) and the packet.
 - **Tracker** – drag-and-drop board or table; tag "rejected over CPT" so that company ranks lower next time.
-- **Inbox** – Gmail connection and job emails to review. **Profile** – your info + canned answers. **Settings** – refresh,
-  alerts, morning digest, cleanup/backups, run-at-login.
+- **Inbox** – Gmail connection and job emails to review. **Resumes** – upload/replace/revert resumes (PDF, DOCX, TXT),
+  set the primary one and title keywords; every job is re-scored immediately and you see how your top 50 changed.
+  **Profile** – your info + canned answers. **Settings** – schedule, alerts, cleanup/backups, run-at-login.
 
 Run in the background at login instead of a terminal: `scripts/install_service.sh` (undo: `scripts/uninstall_service.sh`).
 
@@ -44,8 +45,8 @@ Run in the background at login instead of a terminal: `scripts/install_service.s
 ## Where things live
 - `config/rules.yaml` – what phrases mean (CPT/citizenship wording, categories, locations)
 - `config/skills.txt` – skills dictionary for matched / missing skills
-- `config/companies.yaml` – extra job boards; `config/resumes.yaml` – resume lanes + title targets
-- `data/` (gitignored, personal) – resumes, `profile.yaml` (your info + canned answers), `settings.yaml` (filters),
+- `config/companies.yaml` – extra job boards
+- `data/` (gitignored, personal) – resumes (`resume/`, `resumes.yaml`), `profile.yaml` (your info + canned answers), `settings.yaml` (filters),
   `presets.yaml`, `gmail.yaml` (address only), `models/` (embedding model), `browser-profile/` (Autofill browser)
 
 ## Test

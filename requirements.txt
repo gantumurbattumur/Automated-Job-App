@@ -10,3 +10,5 @@ keyring
 openpyxl
 playwright
 pytest
+python-multipart
+python-docx

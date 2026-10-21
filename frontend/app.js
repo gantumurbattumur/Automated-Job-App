@@ -110,6 +110,8 @@ const SETTINGS_GROUPS = [
 const FIELDS = Object.fromEntries([...FILTERS, ...SETTINGS_GROUPS].flatMap(g => g[2]).map(f => [f.k, f]));
 
 // ---------- state ----------
+let LANE_LABEL = {};
+const laneLabel = l => LANE_LABEL[l] || String(l || '').replace('_', '/').toUpperCase();
 let S = {}, DEFAULTS = {}, presets = {}, feed = { shown: [], hidden: [] }, selected = null, detailCache = {};
 let q = '', sort = store.get('sort', 'score'), showHidden = false, pending = null;
 let lastVisit = store.get('lastVisit', 0) || Date.now(); store.set('lastVisit', lastVisit);
@@ -118,7 +120,7 @@ const setk = (k, v) => { const p = k.split('.'); p.slice(0, -1).reduce((o, x) =>
 const isUnseen = j => new Date(j.first_seen) > lastVisit;
 
 // ---------- router ----------
-const PAGES = { home: renderHome, jobs: renderJobsPage, tracker: renderTracker, inbox: renderInbox, profile: renderProfile, settings: renderSettings };
+const PAGES = { home: renderHome, jobs: renderJobsPage, tracker: renderTracker, inbox: renderInbox, resumes: renderResumes, profile: renderProfile, settings: renderSettings };
 function go(page) {
   page = PAGES[page] ? page : 'home';
   for (const p in PAGES) $(`#page-${p}`).classList.toggle('hidden', p !== page);
@@ -227,7 +229,8 @@ async function renderJobsPage() {
 async function loadSettings() {
   const [s, o, d] = await Promise.all([api('/settings'), api('/settings/options'), api('/settings/defaults')]);
   S = s; DEFAULTS = d;
-  FIELDS.lane.o = Object.fromEntries(o.lanes.map(l => [l, l === 'auto' ? 'Automatic (AI/ML first)' : l.replace('_', '/').toUpperCase()]));
+  LANE_LABEL = o.labels || {};
+  FIELDS.lane.o = Object.fromEntries(o.lanes.map(l => [l, l === 'auto' ? 'Automatic (best resume per job)' : laneLabel(l)]));
   presets = await api('/presets');
 }
 function fieldHtml(f) {
@@ -361,7 +364,7 @@ function renderDetail(j, full) {
       <div class="bars">${Object.entries(parts).map(([k, v]) => `<i style="width:${100 * v / total}%;background:var(${PARTS[k]?.[1] || '--faint'})" title="${PARTS[k]?.[0] || k}: ${v}"></i>`).join('')}</div>
       <div class="legend">${Object.entries(parts).map(([k, v]) => `<span><span class="sw" style="background:var(${PARTS[k]?.[1] || '--faint'})"></span>${PARTS[k]?.[0] || k}: <b>${v}</b></span>`).join('')}</div>
       <p class="small mut" style="margin:10px 0 0">Resume match ${Math.round((j.relevance ?? 0) * 100)}% = meaning ${Math.round((rp.semantic ?? 0) * 100)}% · skills ${Math.round((rp.skills ?? 0) * 100)}% · title ${Math.round((rp.title ?? 0) * 100)}%
-        (best resume: <b>${esc(String(j.best_lane || '').replace('_', '/').toUpperCase())}</b>)${j.personal != null ? ` · your-taste model: ${Math.round(j.personal * 100)}%` : ''}</p>
+        (best resume: <b>${esc(laneLabel(j.best_lane))}</b>)${j.personal != null ? ` · your-taste model: ${Math.round(j.personal * 100)}%` : ''}</p>
     </div></div>
 
     <div class="card"><div class="hd"><h3>Eligibility for you (F-1 CPT)</h3></div><div class="bd"><div class="kv">
@@ -395,8 +398,8 @@ async function loadResumeHelp(id) {
   if (selected !== id || !$('#resumeHelp')) return;
   const lanes = Object.entries(h.lane_similarity);
   $('#resumeHelp').innerHTML = `
-    <p class="small" style="margin:0 0 8px">Send your <b>${esc(h.lane.replace('_', '/').toUpperCase())}</b> resume
-      <span class="mut">(${lanes.map(([k, v]) => `${k.replace('_', '/').toUpperCase()} ${Math.round(v * 100)}%`).join(' vs ')})</span> · <a href="/resume/${enc(h.lane)}" target="_blank">open PDF</a></p>
+    <p class="small" style="margin:0 0 8px">Send your <b>${esc(laneLabel(h.lane))}</b> resume
+      <span class="mut">(${lanes.map(([k, v]) => `${esc(laneLabel(k))} ${Math.round(v * 100)}%`).join(' vs ')})</span> · <a href="/resume/${enc(h.lane)}" target="_blank">open file</a> · <a href="#resumes">update it</a></p>
     <h4>Lead with these bullets</h4>
     <ol class="bullets small">${h.bullets.map(b => `<li>${esc(b.text)} <span class="faint">(${Math.round(b.similarity * 100)}%)</span></li>`).join('')}</ol>
     <h4 style="margin-top:10px">Skills</h4>
@@ -572,6 +575,82 @@ function inboxCard(m) {
       <input type="text" name="title" value="${esc(m.role_guess)}" placeholder="Role (optional)" style="max-width:300px">
       <button class="btn">+ Add to tracker as ${esc(SLABEL[m.kind] || m.kind)}</button>
       <button type="button" class="btn ghost" data-dis="${id}">Not a job email</button></form></div></div>`;
+}
+
+// ---------- RESUMES ----------
+let lastImpact = null;
+async function upload(url, method, fields) {
+  const fd = new FormData();
+  for (const [k, v] of Object.entries(fields)) fd.append(k, v);
+  const r = await fetch(url, { method, body: fd });
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(body.detail || r.statusText);
+  return body;
+}
+async function resumeChange(promise, msg) {
+  const btns = $$('#page-resumes button'); btns.forEach(b => b.disabled = true);
+  toast('Re-ranking every job with your resume…');
+  try { const r = await promise; lastImpact = r.impact; detailCache = {}; Object.keys(helpCache).forEach(k => delete helpCache[k]); await loadSettings(); toast(msg); }
+  catch (e) { toast(e.message); }
+  renderResumes();
+}
+async function renderResumes() {
+  const { resumes } = await api('/resumes');
+  const im = lastImpact;
+  const delta = (a, b, pct) => { const d = pct ? Math.round((b - a) * 100) : Math.round((b - a) * 10) / 10; return `<b class="${d > 0 ? 'ok' : d < 0 ? 'bad' : ''}">${d > 0 ? '+' : ''}${d}${pct ? ' pts' : ''}</b>`; };
+  $('#page-resumes').innerHTML = `
+    <div class="page-head"><div><h1>Resumes</h1><p>Every job is scored against these. Upload a new version any time — the ranking updates right away.</p></div>
+      <button class="btn primary" id="addResumeBtn">+ Add a resume</button></div>
+    ${im ? `<div class="card" style="margin-bottom:16px;border-color:var(--ac)"><div class="hd"><h2>What changed in your top ${im.top_n}</h2><button class="btn sm ghost" id="hideImpact">✕</button></div><div class="bd small">
+      <p style="margin:0 0 8px">Average score ${im.avg_score_before} → <b>${im.avg_score_after}</b> (${delta(im.avg_score_before, im.avg_score_after)}) ·
+        average resume match ${Math.round(im.avg_match_before * 100)}% → <b>${Math.round(im.avg_match_after * 100)}%</b> (${delta(im.avg_match_before, im.avg_match_after, true)})</p>
+      <div class="settings-grid"><div><h4>New in your top ${im.top_n} (${im.entered.length})</h4>${im.entered.length ? im.entered.map(r => `<div class="list-row" data-open="${esc(r.id)}" style="padding:5px 0"><span class="score ${scoreCls(r.score)}">${Math.round(r.score)}</span><span class="grow">${esc(r.title)} <span class="mut">· ${esc(r.company)}</span></span></div>`).join('') : '<p class="mut">none</p>'}</div>
+        <div><h4>Dropped out (${im.left.length})</h4>${im.left.length ? im.left.map(r => `<div class="list-row" data-open="${esc(r.id)}" style="padding:5px 0"><span class="score">${Math.round(r.score)}</span><span class="grow">${esc(r.title)} <span class="mut">· ${esc(r.company)}</span></span></div>`).join('') : '<p class="mut">none</p>'}</div></div></div></div>` : ''}
+    <div class="card hidden" id="addResume" style="margin-bottom:16px"><div class="hd"><h2>Add a resume</h2></div><div class="bd">
+      <p class="small mut" style="margin:0 0 10px">Add one per kind of role you apply to (e.g. “Data analyst”). Each job is matched to whichever fits best.</p>
+      <form class="form-grid" id="addResumeForm">
+        <label class="field"><span>Name</span><input type="text" name="label" placeholder="e.g. Data analyst" required></label>
+        <label class="field wide"><span>Job-title keywords that suit it (comma separated)</span><input type="text" name="targets" placeholder="analyst, analytics, business intelligence"></label>
+        <label class="field wide"><span>File (PDF, DOCX or TXT, under 5 MB)</span><input type="file" name="file" accept=".pdf,.docx,.txt,.md" required></label>
+        <div style="align-self:end"><button class="btn primary">Add &amp; re-rank</button></div></form></div></div>
+    <div class="stack">${resumes.map(resumeCard).join('')}</div>
+    <div class="card" style="margin-top:16px"><div class="hd"><h2>Tips</h2></div><div class="bd small"><ul class="bullets" style="margin:0">
+      <li><b>One resume per target role.</b> The primary one is the default; another wins a job only when it fits clearly better.</li>
+      <li><b>Export a text PDF</b> from Word or Google Docs — scanned images can’t be read.</li>
+      <li><b>Write skills the way postings do</b> (“PyTorch”, “SQL”, “REST APIs”) so they’re counted as matches.</li>
+      <li><b>Check the impact</b> after each upload. If your top matches got worse, revert to the previous version.</li>
+      <li>Files stay in <code>data/resume/</code> on this Mac; older versions are kept until you delete them.</li></ul></div></div>`;
+  bindRows($('#page-resumes'));
+  if ($('#hideImpact')) $('#hideImpact').onclick = () => { lastImpact = null; renderResumes(); };
+  $('#addResumeBtn').onclick = () => $('#addResume').classList.toggle('hidden');
+  $('#addResumeForm').onsubmit = e => { e.preventDefault(); const f = e.target;
+    resumeChange(upload('/resumes', 'POST', { label: f.label.value, targets: f.targets.value, file: f.file.files[0] }), 'Resume added'); };
+  $$('[data-replace]').forEach(inp => inp.onchange = () => { if (inp.files[0]) resumeChange(upload(`/resumes/${enc(inp.dataset.replace)}/file`, 'PUT', { file: inp.files[0] }), 'New version uploaded'); });
+  $$('[data-primary]').forEach(b => b.onclick = () => resumeChange(put(`/resumes/${enc(b.dataset.primary)}`, { primary: true }), 'Primary resume changed'));
+  $$('[data-targets]').forEach(f => f.onsubmit = e => { e.preventDefault();
+    resumeChange(put(`/resumes/${enc(f.dataset.targets)}`, { label: f.label.value, targets: f.targets.value.split(',') }), 'Saved'); });
+  $$('[data-revert]').forEach(b => b.onclick = () => { if (confirm('Switch back to this version?')) resumeChange(post(`/resumes/${enc(b.dataset.revert)}/revert?version=${enc(b.dataset.v)}`), 'Reverted'); });
+  $$('[data-delresume]').forEach(b => b.onclick = () => { if (confirm('Remove this resume? Its files are moved to data/resume/_removed.')) resumeChange(del(`/resumes/${enc(b.dataset.delresume)}`), 'Resume removed'); });
+}
+function resumeCard(r) {
+  const id = esc(r.name);
+  return `<div class="card"><div class="hd"><div class="row"><h2>${esc(r.label)}</h2>${r.primary ? '<span class="tag ok">Primary</span>' : ''}</div>
+    <div class="row">${r.primary ? '' : `<button class="btn sm" data-primary="${id}">Make primary</button>`}
+      <label class="btn sm primary" style="cursor:pointer">Upload new version<input type="file" accept=".pdf,.docx,.txt,.md" data-replace="${id}" hidden></label>
+      <a class="btn sm" href="/resume/${enc(r.name)}" target="_blank">Open</a><button class="btn sm ghost danger" data-delresume="${id}">Remove</button></div></div>
+    <div class="bd">
+      ${r.exists ? `<p class="small mut" style="margin:0 0 10px">${esc(r.file)} · ${r.pages ? `${r.pages} page${r.pages > 1 ? 's' : ''} · ` : ''}${r.words} words · ${r.size_kb} KB${r.uploaded_at ? ` · uploaded ${day(r.uploaded_at)}` : ''}</p>`
+        : '<p class="small bad">The file is missing — upload it again.</p>'}
+      <h4>Skills found (${r.skills.length})</h4>
+      <div class="tags" style="margin:4px 0 12px">${r.skills.map(x => `<span class="tag ok">${esc(x)}</span>`).join('') || '<span class="small mut">none from the skills list</span>'}</div>
+      <form class="form-grid" data-targets="${id}">
+        <label class="field"><span>Name</span><input type="text" name="label" value="${esc(r.label)}"></label>
+        <label class="field wide"><span>Job-title keywords that suit this resume</span><input type="text" name="targets" value="${esc(r.targets.join(', '))}"></label>
+        <div class="full"><button class="btn sm">Save name &amp; keywords</button> <span class="tiny faint">Titles containing these get the title-match points.</span></div></form>
+      ${r.versions.length ? `<details style="margin-top:12px"><summary class="small"><b>Earlier versions (${r.versions.length})</b></summary><table class="t" style="margin-top:6px"><tbody>
+        ${r.versions.map(v => `<tr><td class="small">${esc(v.file)}</td><td class="small mut">${day(v.saved_at)}</td><td><button class="btn sm" data-revert="${id}" data-v="${esc(v.file)}">Use this version</button></td></tr>`).join('')}</tbody></table></details>` : ''}
+      <details style="margin-top:8px"><summary class="small"><b>Text JobPrep reads</b></summary><pre class="desc open small" style="margin-top:6px">${esc(r.preview)}…</pre></details>
+    </div></div>`;
 }
 
 // ---------- PROFILE ----------

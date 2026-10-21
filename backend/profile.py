@@ -86,7 +86,7 @@ def _seed() -> Profile:
     """First run: prefill what the primary resume says. You review it in the Profile tab."""
     from . import resume
     try:
-        text = resume.lane_texts()[load("resumes")["primary"]]
+        text = resume.text(resume.primary())
     except Exception:
         text = ""
     name = (text.strip().splitlines() or [""])[0].title().split()
