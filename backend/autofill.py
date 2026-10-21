@@ -32,6 +32,7 @@ FIELDS = [
     (r"discipline|major|field of study|area of study|course (are you studying|of study)|what are you studying", "major"),
     (r"\bgpa\b|grade point", "gpa"),
     (r"end (date )?year|graduation (year|date)|expected graduation|grad(uation)? date", "grad_year"),
+    (r"start (date )?year", "start_year"),
 ]
 
 # Finds every visible, fillable control, tags it with data-jp, and returns its best label text.
@@ -94,9 +95,9 @@ def _apply_url(url: str) -> str:
 
 
 def values(profile) -> dict[str, str]:
-    year = re.search(r"(20\d\d)", profile.graduation or "")
+    year = lambda s: (re.search(r"(?:19|20)\d\d", s or "") or [""])[0]  # noqa: E731
     return {**profile.model_dump(), "full_name": f"{profile.first_name} {profile.last_name}".strip(),
-            "country": "United States", "grad_year": year[1] if year else ""}
+            "country": "United States", "grad_year": year(profile.graduation), "start_year": year(profile.start)}
 
 
 def answer_for(label: str, company: str, profile, vals: dict) -> str | None:

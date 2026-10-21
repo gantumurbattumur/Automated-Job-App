@@ -64,14 +64,112 @@ def match_company(sender: str, subject: str, body: str, companies: dict[str, lis
     return best
 
 
-def guess_company(sender: str, subject: str) -> str:
+ATS_SENDERS = re.compile(r"no.?reply|notifications?|greenhouse|lever|workday|myworkday|ashby|icims|smartrecruiters|workable|"
+                         r"successfactors|taleo|jobvite|hire|recruitee|bamboohr|careers?@", re.I)
+ATS_DOMAINS = {"myworkday", "workday", "greenhouse", "greenhouse-mail", "lever", "hire", "ashbyhq", "icims", "smartrecruiters",
+               "workablemail", "workable", "successfactors", "taleo", "jobvite", "gmail", "google", "bamboohr", "us", "com"}
+ROLE_WORD = re.compile(r"\b(intern(ship)?|co-?op|engineer|developer|scientist|analyst|researcher|associate|designer|"
+                       r"manager|specialist|fellow|apprentice)\b", re.I)
+REQ_ID = re.compile(r"\b(?:[A-Z]{1,4}[-_]?)?\d{5,}\b|\bref(?:erence)?:?\s*\S+", re.I)
+
+
+def _clean_role(r: str) -> str | None:
+    r = REQ_ID.sub(" ", r)
+    r = re.sub(r"^\W+|[^\w)]+$", "", re.sub(r"\s+", " ", r)).strip(" -–:")
+    if r.count("(") > r.count(")"):
+        r += ")"
+    r = re.sub(r"^(the|our|a|an)\s+", "", r, flags=re.I)
+    return r if 3 <= len(r) <= 90 and ROLE_WORD.search(r) else None
+
+
+ROLE_PATTERNS = [
+    r"ref:?\s*\d+\s*[-–]\s*(?P<r>[^\n]+?)\s+[-–]\s",  # "Ref: 129782 - Back End Developer Intern 2027 - RTP"
+    r"(?:interest in|applying (?:for|to)|application (?:for|to)|applied (?:for|to)|consideration for)\s+(?:the\s+|our\s+)?"
+    r"(?:position of\s+)?(?P<r>[^.,;!?\n]{3,90}?)\s+(?:position|role|opportunity|opening|job|requisition)\b",
+    r"(?:for|in) the (?P<r>[^.,;!?\n]{3,90}?) (?:position|role|opportunity|opening)",
+    r"(?:position|role)(?: of|:)\s+(?P<r>[^.,;!?\n]{3,90})",
+    r"^(?:re:\s*)?(?:your application(?: for| to)?:?\s*)?(?P<r>[^|\n]{3,90}?)\s+(?:at|@|[-–|])\s+[A-Z]",  # "SWE Intern at Acme"
+]
+
+
+def extract_role(subject: str, body: str) -> str | None:
+    """Best guess at the job title an application email is about, or None."""
+    for text in (subject, body[:2000]):
+        for pat in ROLE_PATTERNS:
+            for m in re.finditer(pat, text, re.I | re.M):
+                if r := _clean_role(m["r"]):
+                    return r
+    return None
+
+
+def guess_company(sender: str, subject: str, body: str = "") -> str:
+    """Employer named by the email: "Workday at Gilead" -> Gilead, "IBM Talent Acquisition" -> IBM, subject phrases, then domain."""
     name, addr = parseaddr(sender)
-    m = re.search(r"(?:at|to|with|from)\s+([A-Z][\w&.\- ]{1,40}?)(?:[!,.:]|\s+-|\s+for|$)", subject)
-    if m:
+    for pat in (r"(?:interest in|applying to|applied to|application (?:to|with)|thank you for applying (?:to|at)|"
+                r"thanks for applying (?:to|at)|position at|role at|opportunity at|candidacy (?:at|with)|team at)\s+"
+                r"(?:the\s+)?([A-Z][\w&.\'\- ]{1,40}?)(?=[!,.:;)]|\s+(?:and|for|is|has|team|we|-)\b|$)",
+                r"^your ([A-Z][\w&.\- ]{1,30}?) application\b"):
+        for text in (subject, body[:600]):
+            if m := re.search(pat, text, re.M):
+                c = m[1].strip()
+                if not ROLE_WORD.search(c) and c.lower() not in {"us", "our team", "the team"}:
+                    return re.sub(r"\s+(careers|recruiting|inc\.?|llc)$", "", c, flags=re.I)
+    if m := re.search(r"\b(?:workday|greenhouse|lever|careers?|jobs|recruiting|talent)\s+(?:at|@)\s+(.+)", name, re.I):
         return m[1].strip()
-    if name and not re.search(r"no.?reply|notifications?|greenhouse|lever|workday|ashby", name, re.I):
-        return re.sub(r"\s*(careers|recruiting|talent|jobs|hr)\b.*", "", name, flags=re.I).strip()
-    return addr.split("@")[-1] if "@" in addr else ""
+    if name and not ATS_SENDERS.search(name):
+        n = re.sub(r"\s*\b(careers|recruiting|recruitment|talent( acquisition)?|jobs|hr|hiring|team|university|campus)\b.*",
+                   "", name, flags=re.I).strip(" -|")
+        if n:
+            return n
+    dom = addr.split("@")[-1].split(".") if "@" in addr else []
+    core = dom[-2] if len(dom) >= 2 else ""
+    if core.lower() in ATS_DOMAINS and len(dom) >= 3:  # e.g. gilead.myworkday.com
+        core = dom[-3]
+    return core.capitalize() if core and core.lower() not in ATS_DOMAINS else ""
+
+
+def backfill_roles() -> int:
+    """Give tracker entries created from emails before role extraction existed a real title."""
+    from .models import Job
+    fixed = 0
+    with session() as s:
+        for i in s.exec(select(InboxItem).where(InboxItem.job_id != None)).all():  # noqa: E711
+            j = s.get(Job, i.job_id)
+            role = i.role_guess or extract_role(i.subject, i.snippet)
+            if j and j.source == "manual" and j.title == "(unknown role)" and role:
+                j.title = role
+                s.add(j)
+                fixed += 1
+        s.commit()
+    return fixed
+
+
+def suggestions(company: str, role: str | None, limit: int = 5) -> list[dict]:
+    """Jobs this email is most likely about: tracked ones first, then everything in the database, by company then title."""
+    from .models import Job
+    want = _norm(company)
+    if len(want) < 2:
+        return []
+    role_tokens = _tokens(role or "")
+    with session() as s:
+        tracked = {a.job_id: a.status for a in s.exec(select(Application)).all()}
+        jobs = s.exec(select(Job)).all()
+    out = []
+    for j in jobs:
+        have = _norm(j.company)
+        if not have or not (have == want or (min(len(have), len(want)) >= 4 and (have.startswith(want) or want.startswith(have)))):
+            continue
+        overlap = len(role_tokens & _tokens(j.title)) / len(role_tokens) if role_tokens else 0
+        score = overlap + (0.5 if j.id in tracked else 0) + (0.1 if not j.closed else 0)
+        out.append({"job_id": j.id, "company": j.company, "title": j.title, "tracked": tracked.get(j.id),
+                    "closed": j.closed, "score": round(score, 2)})
+    out.sort(key=lambda x: -x["score"])
+    return out[:limit]
+
+
+def _tokens(s: str) -> set[str]:
+    stop = {"intern", "internship", "the", "and", "of", "for", "summer", "fall", "spring", "winter", "2025", "2026", "2027", "2028"}
+    return {t for t in re.split(r"[^a-z0-9]+", s.lower()) if len(t) > 1 and t not in stop}
 
 
 # --- credentials ------------------------------------------------------------
@@ -151,7 +249,8 @@ def ingest(messages: list[dict]) -> dict:
         job_id = match_company(m["sender"], m["subject"], m["body"], companies)
         item = InboxItem(message_id=m["message_id"], received_at=m["date"], sender=m["sender"][:200],
                          subject=m["subject"][:300], snippet=m["body"][:500], kind=kind,
-                         company_guess=guess_company(m["sender"], m["subject"]), job_id=job_id,
+                         company_guess=guess_company(m["sender"], m["subject"], m["body"]), job_id=job_id,
+                         role_guess=extract_role(m["subject"], m["body"]) or "",
                          state="applied_to_tracker" if job_id else "new")
         if job_id:
             tracker.set_status(job_id, kind, "gmail", forward_only=True)

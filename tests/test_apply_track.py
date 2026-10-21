@@ -179,3 +179,55 @@ def test_required_markers_and_punctuation():
     v = autofill.values(p)
     assert autofill.answer_for("Full name ✱", "x", p, v) == "Gana B"
     assert autofill.answer_for("Do you now, or will you in the future, require immigration sponsorship?", "x", p, v) == "Yes"
+
+
+# --- email -> company / role / suggestions ---------------------------------------
+
+@pytest.mark.parametrize("sender,subject,body,company,role", [
+    ("Workday at Gilead <gilead@myworkday.com>", "Thank you for your interest in Gilead Sciences",
+     "Thank you for your interest in the R0054868 Intern - CFO - IT (Digital Marketing) opportunity at Gilead",
+     "Gilead Sciences", "Intern - CFO - IT (Digital Marketing)"),
+    ("IBM Talent Acquisition <talent@ibm.com>", "Your IBM Application Status",
+     "IBM Careers Ref: 129782 - Back End Developer Intern 2027 - RTP Dear Applicant, We regret", "IBM", "Back End Developer Intern 2027"),
+    ("no-reply@greenhouse.io", "Your application to Scale AI",
+     "Thank you for applying to the Machine Learning Research Intern position at Scale AI.", "Scale AI", "Machine Learning Research Intern"),
+    ("Acme Recruiting <jobs@acme.com>", "Data Science Intern at Acme - next steps", "Please complete the assessment.",
+     "Acme", "Data Science Intern"),
+    ("hr@bigco.com", "Update", "We have an update for you.", "Bigco", None),
+])
+def test_email_company_and_role(sender, subject, body, company, role):
+    assert gmail.guess_company(sender, subject, body) == company
+    assert gmail.extract_role(subject, body) == role
+
+
+def test_suggestions_rank_tracked_and_title(db):
+    with models.session() as s:
+        s.add(Job(id="g1", source="workday", company="Gilead Sciences", title="Intern - CFO - IT (Digital Marketing)", url="u", posted_at=NOW))
+        s.add(Job(id="g2", source="workday", company="Gilead Sciences", title="Intern - Clinical Data Science", url="u", posted_at=NOW))
+        s.add(Job(id="g3", source="simplify", company="Gilead", title="Intern - Finance", url="u", posted_at=NOW))
+        s.commit()
+    tracker.set_status("g3", "applied")
+    top = gmail.suggestions("Gilead Sciences", "Intern - CFO - IT (Digital Marketing)")
+    assert top[0]["job_id"] == "g1" and {x["job_id"] for x in top} == {"g1", "g2", "g3"}
+    assert gmail.suggestions("Gilead", None)[0]["job_id"] == "g3"  # no role: the one you applied to wins
+    assert gmail.suggestions("Nobody", "Intern") == []
+
+
+def test_backfill_unknown_roles(db):
+    a = tracker.add_manual("IBM", "", status="rejected")
+    with models.session() as s:
+        s.get(Job, a.job_id).title = "(unknown role)"
+        s.add(InboxItem(message_id="m1", received_at=NOW, sender="talent@ibm.com", subject="Your IBM Application Status",
+                        snippet="Ref: 129782 - Back End Developer Intern 2027 - RTP", kind="rejected", job_id=a.job_id,
+                        state="applied_to_tracker"))
+        s.commit()
+    assert gmail.backfill_roles() == 1
+    with models.session() as s:
+        assert s.get(Job, a.job_id).title == "Back End Developer Intern 2027"
+
+
+def test_education_years_for_autofill():
+    p = P(start="August 2026", graduation="May 2028")
+    v = autofill.values(p)
+    assert autofill.answer_for("Start date year*", "x", p, v) == "2026"
+    assert autofill.answer_for("End date year*", "x", p, v) == "2028"

@@ -505,11 +505,12 @@ function tcard(a, today) {
 }
 
 // ---------- INBOX ----------
+let inboxTab = 'new';
 async function renderInbox() {
-  const [g, items, apps] = await Promise.all([api('/gmail'), api('/inbox'), api('/applications')]);
-  const ls = g.last_scan;
+  const [g, items, handled] = await Promise.all([api('/gmail'), api('/inbox?state=new'), api('/inbox?state=applied_to_tracker')]);
+  const ls = g.last_scan, list = inboxTab === 'new' ? items : handled;
   $('#page-inbox').innerHTML = `
-    <div class="page-head"><div><h1>Inbox</h1><p>Job emails from Gmail. Ones that match a tracked application update it automatically; the rest wait here for you.</p></div></div>
+    <div class="page-head"><div><h1>Inbox</h1><p>Job emails from Gmail. Emails that clearly match a tracked application update it automatically; the rest wait here.</p></div></div>
     <div class="card" style="margin-bottom:16px">${g.connected ? `<div class="bd row between">
         <span>📬 Connected as <b>${esc(g.email)}</b> · <span class="mut">${ls ? `last scan ${ago(ls.last_run)}${ls.error ? ` — <span class="bad">${esc(ls.error)}</span>` : ` — ${ls.job_emails ?? 0} job emails, ${ls.updated ?? 0} updated`}` : 'not scanned yet'}</span></span>
         <span class="row"><button class="btn primary" id="gScan">Scan now</button><button class="btn" id="gDis">Disconnect</button></span></div>`
@@ -520,29 +521,61 @@ async function renderInbox() {
         <div class="form-grid" style="margin-top:10px"><label class="field"><span>Gmail address</span><input type="email" id="gEmail" placeholder="you@gmail.com"></label>
           <label class="field"><span>App password</span><input type="password" id="gPw" placeholder="16 characters" autocomplete="off"></label>
           <div style="align-self:end"><button class="btn primary" id="gCon">Connect</button> <span id="gMsg" class="small mut"></span></div></div></div>`}</div>
-    <h2 style="margin-bottom:8px">To review <span class="mut">(${items.length})</span></h2>
-    ${items.length ? items.map(m => `<div class="card" style="margin-bottom:10px"><div class="bd">
-        <div class="row between"><b>${esc(m.subject)}</b><span class="tag ${m.kind === 'rejected' ? 'bad' : m.kind === 'offer' || m.kind === 'interview' ? 'ok' : 'ac'}">${SLABEL[m.kind] || m.kind}</span></div>
-        <div class="small mut">${esc(m.sender)} · ${ago(m.received_at)}</div>
-        <p class="small" style="margin:8px 0">${esc(m.snippet.slice(0, 300))}…</p>
-        <div class="row"><select data-link="${esc(m.message_id)}" style="max-width:340px"><option value="">Attach to a tracked application…</option>
-          ${apps.map(a => `<option value="${esc(a.job_id)}">${esc(a.company)} — ${esc(a.title)}</option>`).join('')}</select>
-          <button class="btn sm" data-new="${esc(m.message_id)}" data-co="${esc(m.company_guess)}">+ New entry${m.company_guess ? ` for ${esc(m.company_guess)}` : ''}</button>
-          <button class="btn sm ghost" data-dis="${esc(m.message_id)}">Not a job email</button></div></div></div>`).join('')
-      : '<div class="card"><div class="empty">Nothing to review.</div></div>'}`;
+    <div class="row between" style="margin-bottom:10px"><div class="seg"><button data-itab="new" class="${inboxTab === 'new' ? 'on' : ''}">To review (${items.length})</button>
+      <button data-itab="handled" class="${inboxTab === 'handled' ? 'on' : ''}">In tracker (${handled.length})</button></div></div>
+    ${list.length ? list.map(m => inboxCard(m)).join('') : `<div class="card"><div class="empty">${inboxTab === 'new' ? 'Nothing to review.' : 'No emails linked to the tracker yet.'}</div></div>`}`;
+  $$('[data-itab]').forEach(b => b.onclick = () => { inboxTab = b.dataset.itab; renderInbox(); });
   if ($('#gCon')) $('#gCon').onclick = async () => { $('#gMsg').textContent = 'Checking…'; try { await post('/gmail/connect', { email: $('#gEmail').value, app_password: $('#gPw').value }); toast('Gmail connected'); renderInbox(); } catch (e) { $('#gMsg').textContent = e.message; } };
   if ($('#gScan')) $('#gScan').onclick = async () => { $('#gScan').innerHTML = '<span class="spin"></span> Scanning'; try { const r = await post('/gmail/scan'); toast(r.error || `${r.job_emails} job emails · ${r.updated} updated · ${r.to_review} to review`); } catch (e) { toast(e.message); } renderInbox(); loadInboxCount(); };
   if ($('#gDis')) $('#gDis').onclick = async () => { if (confirm('Disconnect Gmail and delete the saved app password?')) { await del('/gmail'); renderInbox(); } };
-  $$('[data-link]').forEach(el => el.onchange = async () => { if (!el.value) return; await post(`/inbox/${enc(el.dataset.link)}/resolve`, { job_id: el.value }); toast('Tracker updated'); renderInbox(); loadInboxCount(); });
-  $$('[data-new]').forEach(b => b.onclick = async () => { const company = prompt('Company:', b.dataset.co); if (!company) return; await post(`/inbox/${enc(b.dataset.new)}/resolve`, { company, title: prompt('Role (optional):') || '' }); renderInbox(); loadInboxCount(); });
-  $$('[data-dis]').forEach(b => b.onclick = async () => { await post(`/inbox/${enc(b.dataset.dis)}/dismiss`); renderInbox(); loadInboxCount(); });
+  const done = async (msg) => { toast(msg); await renderInbox(); loadInboxCount(); };
+  const resolve = (id, body) => post(`/inbox/${enc(id)}/resolve`, body);
+  $$('[data-attach]').forEach(b => b.onclick = async () => { await resolve(b.dataset.msg, { job_id: b.dataset.attach }); done('Added to tracker'); });
+  $$('[data-dis]').forEach(b => b.onclick = async () => { await post(`/inbox/${enc(b.dataset.dis)}/dismiss`); done('Dismissed'); });
+  $$('form[data-new]').forEach(f => f.onsubmit = async e => { e.preventDefault();
+    await resolve(f.dataset.new, { company: f.company.value.trim(), title: f.title.value.trim() }); done('New tracker entry created'); });
+  $$('[data-search]').forEach(inp => {
+    const box = inp.nextElementSibling; let timer;
+    inp.oninput = () => { clearTimeout(timer); timer = setTimeout(async () => {
+      if (inp.value.trim().length < 2) { box.innerHTML = ''; return; }
+      const hits = await api(`/jobs-search?q=${enc(inp.value)}`);
+      box.innerHTML = hits.length ? hits.map(h => `<button class="btn sm" data-attach="${esc(h.job_id)}" data-msg="${esc(inp.dataset.search)}">${esc(h.company)} — ${esc(h.title)}${h.tracked ? ` <span class="tag ac">${SLABEL[h.tracked]}</span>` : ''}${h.closed ? ' <span class="faint">(closed)</span>' : ''}</button>`).join('')
+        : '<span class="small mut">No jobs found — create a new entry below.</span>';
+      $$('[data-attach]', box).forEach(b => b.onclick = async () => { await resolve(b.dataset.msg, { job_id: b.dataset.attach }); done('Added to tracker'); });
+    }, 250); };
+  });
+}
+function inboxCard(m) {
+  const kindTag = `<span class="tag ${m.kind === 'rejected' ? 'bad' : ['offer', 'interview'].includes(m.kind) ? 'ok' : 'ac'}">${SLABEL[m.kind] || m.kind}</span>`;
+  const head = `<div class="row between"><b>${esc(m.subject)}</b>${kindTag}</div>
+    <div class="small mut">${esc(m.sender)} · ${ago(m.received_at)}</div>`;
+  if (m.state !== 'new') return `<div class="card" style="margin-bottom:10px"><div class="bd">${head}
+    <p class="small" style="margin:8px 0 0">${m.linked ? `In tracker as <b>${esc(m.linked.company)} — ${esc(m.linked.title)}</b>` : 'Linked to the tracker'}</p></div></div>`;
+  const id = esc(m.message_id);
+  return `<div class="card" style="margin-bottom:10px"><div class="bd">${head}
+    <p class="small" style="margin:8px 0">${esc(m.snippet.slice(0, 260))}…</p>
+    <p class="small" style="margin:0 0 8px">Looks like: <b>${esc(m.role_guess || 'role not stated')}</b> at <b>${esc(m.company_guess || 'unknown company')}</b></p>
+    ${m.suggestions.length ? `<h4>Best matches</h4><div class="row" style="margin:4px 0 10px">${m.suggestions.map(x =>
+        `<button class="btn sm ${x === m.suggestions[0] ? 'primary' : ''}" data-attach="${esc(x.job_id)}" data-msg="${id}" title="Attach this email to it">${esc(x.company)} — ${esc(x.title)}${x.tracked ? ` · ${SLABEL[x.tracked]}` : ''}${x.closed ? ' · closed' : ''}</button>`).join('')}</div>` : ''}
+    <h4>Find another job</h4>
+    <input type="text" data-search="${id}" placeholder="Type company or role, e.g. “gilead intern”" style="margin:4px 0 6px;max-width:420px">
+    <div class="row" style="margin-bottom:10px"></div>
+    <h4>Or add it as a new application</h4>
+    <form class="row" data-new="${id}" style="margin-top:4px">
+      <input type="text" name="company" value="${esc(m.company_guess)}" placeholder="Company" style="max-width:220px" required>
+      <input type="text" name="title" value="${esc(m.role_guess)}" placeholder="Role (optional)" style="max-width:300px">
+      <button class="btn">+ Add to tracker as ${esc(SLABEL[m.kind] || m.kind)}</button>
+      <button type="button" class="btn ghost" data-dis="${id}">Not a job email</button></form></div></div>`;
 }
 
 // ---------- PROFILE ----------
 const PROFILE_SECTIONS = [
   ['Contact', [['first_name', 'First name'], ['last_name', 'Last name'], ['preferred_name', 'Preferred name'], ['email', 'Email'], ['phone', 'Phone'], ['location', 'Location (City, ST)']]],
   ['Links', [['linkedin', 'LinkedIn URL'], ['github', 'GitHub URL'], ['website', 'Website / portfolio']]],
-  ['Education', [['school', 'School'], ['degree', 'Degree'], ['major', 'Major'], ['graduation', 'Graduation (e.g. May 2028)'], ['gpa', 'GPA'], ['undergrad_school', 'Undergrad school'], ['undergrad_degree', 'Undergrad degree']]],
+  ['Graduate program (current)', [['school', 'School', 'wide'], ['degree', 'Degree'], ['major', 'Major / field of study', 'wide'], ['gpa', 'GPA'],
+    ['start', 'Started (e.g. August 2026)'], ['graduation', 'Expected graduation (e.g. May 2028)']], 'Forms asking for “School” or “Current education” use this one.'],
+  ['Undergraduate', [['undergrad_school', 'School', 'wide'], ['undergrad_degree', 'Degree'], ['undergrad_major', 'Major / minor', 'wide'], ['undergrad_gpa', 'GPA'],
+    ['undergrad_start', 'Started'], ['undergrad_graduation', 'Graduated']]],
   ['Work authorization & availability', [['work_authorization', 'How to describe your status', 'wide'], ['availability', 'Availability']]],
 ];
 async function renderProfile() {
@@ -553,7 +586,7 @@ async function renderProfile() {
       <div class="row"><span id="pMsg" class="small mut"></span><button class="btn primary" id="pSave">Save profile</button></div></div>
     ${missing.length ? `<div class="card" style="margin-bottom:16px"><div class="bd small"><b class="warn">Still empty:</b> ${missing.map(k => esc(k.replace('_', ' '))).join(', ')} — Autofill will leave these for you.</div></div>` : ''}
     <div class="stack">
-      ${PROFILE_SECTIONS.map(([t, fs]) => `<div class="card"><div class="hd"><h2>${t}</h2></div><div class="bd form-grid">
+      ${PROFILE_SECTIONS.map(([t, fs, note]) => `<div class="card"><div class="hd"><h2>${t}</h2>${note ? `<span class="small mut">${note}</span>` : ''}</div><div class="bd form-grid">
         ${fs.map(([k, l, w]) => `<label class="field ${w || ''}"><span>${l}</span><input type="text" data-p="${k}" value="${esc(p[k])}"></label>`).join('')}</div></div>`).join('')}
       <div class="card"><div class="hd"><h2>Companies you’ve worked at</h2><span class="small mut">“Have you worked here before?” becomes Yes for these</span></div>
         <div class="bd"><input type="text" data-p="worked_at" value="${esc(p.worked_at.join(', '))}" placeholder="e.g. F5, F5 Networks"></div></div>

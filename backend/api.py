@@ -298,9 +298,34 @@ def gmail_scan(days: int = 14):
 
 @app.get("/inbox")
 def inbox(state: str = "new"):
+    """Job emails, with the employer and role read from the email and the jobs it most likely belongs to."""
     with session() as s:
         items = s.exec(select(InboxItem).where(InboxItem.state == state)).all()
-    return sorted(items, key=lambda x: x.received_at, reverse=True)
+        linked = {i.job_id: s.get(Job, i.job_id) for i in items if i.job_id}
+    out = []
+    for i in sorted(items, key=lambda x: x.received_at, reverse=True):
+        company = gmail.guess_company(i.sender, i.subject, i.snippet) or i.company_guess
+        role = i.role_guess or gmail.extract_role(i.subject, i.snippet) or ""
+        j = linked.get(i.job_id)
+        out.append({**i.model_dump(), "company_guess": company, "role_guess": role,
+                    "linked": {"company": j.company, "title": j.title} if j else None,
+                    "suggestions": gmail.suggestions(company, role) if state == "new" else []})
+    return out
+
+
+@app.get("/jobs-search")
+def jobs_search(q: str, limit: int = 15):
+    """Typeahead over every job in the database (tracked ones first) by company and title words."""
+    words = [w for w in q.lower().split() if w]
+    if not words:
+        return []
+    with session() as s:
+        tracked = {a.job_id: a.status for a in s.exec(select(Application)).all()}
+        jobs = s.exec(select(Job)).all()
+    hits = [j for j in jobs if all(w in f"{j.company} {j.title}".lower() for w in words)]
+    hits.sort(key=lambda j: (j.id not in tracked, j.closed, -j.posted_at.timestamp()))
+    return [{"job_id": j.id, "company": j.company, "title": j.title, "location": j.location, "tracked": tracked.get(j.id),
+             "closed": j.closed} for j in hits[:limit]]
 
 
 class InboxResolve(BaseModel):
@@ -319,8 +344,9 @@ def inbox_resolve(message_id: str, body: InboxResolve):
         tracker.set_status(body.job_id, item.kind, "gmail", forward_only=True)
         job_id = body.job_id
     else:
-        job_id = tracker.add_manual(body.company or item.company_guess or "Unknown", body.title, "", item.kind,
-                                    f"From email: {item.subject}").job_id
+        company = body.company or gmail.guess_company(item.sender, item.subject, item.snippet) or item.company_guess or "Unknown"
+        title = body.title or item.role_guess or gmail.extract_role(item.subject, item.snippet) or "(unknown role)"
+        job_id = tracker.add_manual(company, title, "", item.kind, f"From email: {item.subject}").job_id
     with session() as s:
         item = s.get(InboxItem, message_id)
         item.job_id, item.state = job_id, "applied_to_tracker"

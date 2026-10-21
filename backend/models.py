@@ -54,6 +54,7 @@ class InboxItem(SQLModel, table=True):
     snippet: str = ""
     kind: str  # applied | rejected | oa | interview | offer
     company_guess: str = ""
+    role_guess: Optional[str] = ""  # from the full email at scan time (only a short snippet is stored)
     job_id: Optional[str] = None  # set when matched to a tracked application
     state: str = "new"  # new | applied_to_tracker | dismissed
 

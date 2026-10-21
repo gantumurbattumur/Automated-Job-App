@@ -241,5 +241,6 @@ def start_scheduler() -> None:
     if os.environ.get("JOBPREP_NO_SCHEDULER"):
         return
     maintenance.migrate_settings()
+    gmail.backfill_roles()
     threading.Thread(target=lambda: feed.build(settings.get()), name="jobprep-warm", daemon=True).start()
     threading.Thread(target=_loop, name="jobprep-scheduler", daemon=True).start()

@@ -19,7 +19,7 @@ playwright = pytest.importorskip("playwright.sync_api")
 
 SEED = """
 from datetime import datetime, timedelta, timezone
-from backend.models import Job, init_db, session
+from backend.models import InboxItem, Job, init_db, session
 init_db()
 now = datetime.now(timezone.utc)
 with session() as s:
@@ -30,6 +30,9 @@ with session() as s:
               url="https://example.com/2", posted_at=now - timedelta(days=2), description="SQL, pandas, statistics."))
     s.add(Job(id="ashby:gamma:3", source="ashby", company="Gamma", title="Software Engineering Intern", location="Austin, TX",
               url="https://example.com/3", posted_at=now - timedelta(days=1), description="Must be a U.S. citizen. Java, React."))
+    s.add(InboxItem(message_id="<m1@mail>", received_at=now, sender="Workday at Acme AI <acme@myworkday.com>",
+                    subject="Thank you for your interest in Acme AI", kind="rejected",
+                    snippet="Thank you for your application for the Machine Learning Intern (Summer 2027) position. Unfortunately..."))
     s.commit()
 """
 
@@ -106,14 +109,21 @@ def test_ui_end_to_end(server):
 
         # profile save round-trip
         page.click("#nav [data-page=profile]")
+        page.wait_for_selector("#page-profile >> text=Undergraduate")
         page.fill("[data-p=graduation]", "May 2028")
         page.click("#pSave")
         page.wait_for_timeout(800)
         assert httpx.get(f"{server}/profile").json()["graduation"] == "May 2028"
 
-        # inbox + settings render
+        # inbox: role + company read from the email, one-click best match moves it into the tracker
         page.click("#nav [data-page=inbox]")
         page.wait_for_selector("#page-inbox >> text=Connect Gmail (read-only, free)")
+        card = page.inner_text("#page-inbox")
+        assert "Machine Learning Intern (Summer 2027)" in card and "Acme AI" in card
+        page.locator("#page-inbox [data-attach]").first.click()
+        page.wait_for_selector("#page-inbox >> text=In tracker (1)")
+        apps = httpx.get(f"{server}/applications").json()
+        assert any(a["company"] == "Acme AI" and a["status"] == "rejected" for a in apps)
         page.click("#nav [data-page=settings]")
         page.wait_for_selector("#page-settings >> text=Run at login")
 

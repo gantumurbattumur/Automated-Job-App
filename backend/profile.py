@@ -29,13 +29,20 @@ class Profile(BaseModel):
     linkedin: str = ""
     github: str = ""
     website: str = ""
+    # current (graduate) program — what application forms mean by "School"
     school: str = ""
     degree: str = ""
     major: str = ""
-    graduation: str = ""  # e.g. "May 2028"
+    start: str = ""  # e.g. "August 2026"
+    graduation: str = ""  # expected, e.g. "May 2028"
     gpa: str = ""
+    # undergraduate
     undergrad_school: str = ""
     undergrad_degree: str = ""
+    undergrad_major: str = ""
+    undergrad_start: str = ""
+    undergrad_graduation: str = ""
+    undergrad_gpa: str = ""
     work_authorization: str = "F-1 student; authorized for internships via CPT (no employer sponsorship needed for CPT)"
     availability: str = "Summer 2027"
     worked_at: list[str] = []  # employers you've worked for -> "worked here before?" = Yes
@@ -149,7 +156,9 @@ def fields(p: Profile) -> list[dict]:
     full = f"{p.first_name} {p.last_name}".strip()
     rows = [("Full name", full), ("First name", p.first_name), ("Last name", p.last_name), ("Preferred name", p.preferred_name),
             ("Email", p.email), ("Phone", p.phone), ("Location", p.location), ("LinkedIn", p.linkedin), ("GitHub", p.github),
-            ("Website", p.website), ("School", p.school), ("Degree", p.degree), ("Major", p.major), ("Graduation", p.graduation),
-            ("GPA", p.gpa), ("Undergrad school", p.undergrad_school), ("Undergrad degree", p.undergrad_degree),
-            ("Work authorization", p.work_authorization), ("Availability", p.availability)]
+            ("Website", p.website), ("School", p.school), ("Degree", p.degree), ("Major", p.major), ("Start", p.start),
+            ("Expected graduation", p.graduation), ("GPA", p.gpa), ("Undergrad school", p.undergrad_school),
+            ("Undergrad degree", p.undergrad_degree), ("Undergrad major", p.undergrad_major),
+            ("Undergrad dates", " – ".join(x for x in (p.undergrad_start, p.undergrad_graduation) if x)),
+            ("Undergrad GPA", p.undergrad_gpa), ("Work authorization", p.work_authorization), ("Availability", p.availability)]
     return [{"label": k, "value": v} for k, v in rows if v]
