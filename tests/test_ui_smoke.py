@@ -45,6 +45,9 @@ def server(tmp_path_factory):
     tmp = tmp_path_factory.mktemp("jobprep")
     (tmp / "data").mkdir()
     env = {**os.environ, "JOBPREP_DATA": str(tmp / "data"), "JOBPREP_DB": str(tmp / "jobs.db"), "JOBPREP_NO_SCHEDULER": "1"}
+    if (ROOT / "data" / "geo" / "cities.json").exists():  # reuse the city list instead of downloading it again
+        (tmp / "data" / "geo").mkdir()
+        shutil.copy(ROOT / "data" / "geo" / "cities.json", tmp / "data" / "geo" / "cities.json")
     subprocess.run([sys.executable, "-c", SEED], cwd=ROOT, env=env, check=True)
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
@@ -102,6 +105,24 @@ def test_ui_end_to_end(server):
         page.locator("#activeFilters [data-reset]").first.click()
         page.wait_for_timeout(800)
 
+        # location radius: near LA within 500 mi keeps San Francisco (~347 mi), hides New York; bad city is refused
+        near = page.locator("#filters input[data-k=near_location]")
+        near.fill("Los Angeles, CA")
+        near.dispatch_event("change")
+        page.locator("#filters select[data-k=near_radius_miles]").select_option("500")
+        page.wait_for_timeout(1500)
+        page.wait_for_selector("#list .job >> text=mi")
+        listing = page.inner_text("#list")
+        assert "Machine Learning Intern" in listing and "347 mi" in listing and "Data Science Intern" not in listing
+        near.fill("Qwertyvillezz")
+        near.dispatch_event("change")
+        page.wait_for_selector("text=find “Qwertyvillezz”")
+        page.wait_for_timeout(800)
+        assert httpx.get(f"{server}/settings").json()["near_location"] == "Los Angeles, CA"
+        page.locator("#filters input[data-k=near_location]").fill("")
+        page.locator("#filters input[data-k=near_location]").dispatch_event("change")
+        page.wait_for_timeout(1500)
+
         # save -> tracker board card
         page.wait_for_selector("#list .job")
         page.locator("#list .job", has_text="Machine Learning Intern").click()
@@ -153,5 +174,5 @@ def test_ui_end_to_end(server):
         page.wait_for_selector("#list .job")
         assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 1")
 
-        assert errors == []
+        assert [e for e in errors if "status of 422" not in e] == []  # the 422 is the refused city above
         browser.close()

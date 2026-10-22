@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sqlmodel import select
 
-from . import digest, feed, gmail, maintenance, profile, resume, settings, tracker
+from . import digest, feed, geo, gmail, maintenance, profile, resume, settings, tracker
 from . import refresh as refresh_mod
 from .config import DATA, ROOT, load
 from .models import Application, InboxItem, Job, init_db, session
@@ -64,7 +64,19 @@ def get_settings() -> Settings:
 
 @app.put("/settings")
 def put_settings(s: Settings) -> Settings:
+    if s.near_location.strip():
+        try:
+            found = geo.center(s.near_location)
+        except Exception as e:  # first use downloads the free city list; offline -> say so
+            raise HTTPException(503, f"Couldn't load the city list for distance filtering: {e}")
+        if not found:
+            raise HTTPException(422, f"Couldn't find “{s.near_location}”. Try “City, ST”, e.g. “Los Angeles, CA”.")
     return settings.save(s)
+
+
+@app.get("/geo/suggest")
+def geo_suggest(q: str):
+    return geo.suggest(q)
 
 
 @app.delete("/settings")

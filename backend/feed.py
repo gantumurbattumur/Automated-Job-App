@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 
 from sqlmodel import select
 
-from . import h1b, personal, ranking, relevance, resume
+from . import geo, h1b, personal, ranking, relevance, resume
 from .config import ROOT, load
 from .filters import _word, apply, classify, parse_deadline
 from .models import Application, Job, session
@@ -84,6 +84,7 @@ def build(st: Settings, now: datetime | None = None) -> list[dict]:
     with session() as s:  # companies that turned you down over CPT (tagged in the tracker), incl. manual entries
         cpt_issue = {_key(s.get(Job, a.job_id))[0] for a in app_rows if a.cpt_issue and s.get(Job, a.job_id)}
     flags, rel = _analyze(jobs, st)
+    near = geo.center(st.near_location) if st.near_location else None
     out = []
     for j in jobs:
         f = flags[j.id]
@@ -107,6 +108,14 @@ def build(st: Settings, now: datetime | None = None) -> list[dict]:
             reasons.append("no H-1B history")
         if deadline and deadline < now and st.hide_expired:
             reasons.append("deadline passed")
+        dist = None
+        if near:
+            dist = geo.nearest(j.location, near)
+            remote_ok = st.near_include_remote and f.work_mode == "remote"
+            if dist is None and not (remote_ok or st.near_keep_unknown):
+                reasons.append("location unknown")
+            elif dist is not None and dist > st.near_radius_miles and not remote_ok:
+                reasons.append(f"{dist:.0f} mi from {near[2]}")
         if st.stale_days and age_days > st.stale_days:
             warnings.append(f"open {int(age_days)}+ days")
         out.append({
@@ -118,6 +127,7 @@ def build(st: Settings, now: datetime | None = None) -> list[dict]:
             "space": f.space, "education": f.education, "categories": f.categories, "seasons": f.seasons,
             "work_mode": f.work_mode, "hourly": f.hourly, "warnings": warnings, "boosted": boosted,
             "has_description": bool(j.description), "h1b_approvals": h1b_n,
+            "distance_mi": None if dist is None else round(dist), "near": near[2] if near else None,
             "best_lane": lane, "relevance": round(r, 2), "hidden_reasons": reasons, "status": apps.get(j.id),
             "skills_matched": m["matched"], "skills_missing": m["missing"], "relevance_parts": m["parts"],
             "_key": _key(j), "_fresh": ranking.freshness(posted, now, st.freshness_half_life_days), "_friendly": friendly,

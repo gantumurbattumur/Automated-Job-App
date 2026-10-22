@@ -51,6 +51,7 @@ def test_categories_seasons_mode_pay():
     assert classify("Intern", "acme", "", "Cambridge, UK").us is False
     assert classify("Intern", "acme", "", "").us is None
     assert classify("Intern", "acme", "", "Remote").us is None
+    assert classify("Intern", "acme", "", "Multiple Locations").us is None
 
 
 def test_season_ignores_graduation_dates():

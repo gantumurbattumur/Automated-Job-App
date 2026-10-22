@@ -67,7 +67,11 @@ const FILTERS = [
     { k: 'hide_applied', t: 'bool', l: 'Hide jobs already in my tracker' },
     { k: 'hide_applied_companies', t: 'bool', l: 'Hide companies I already applied to' },
     { k: 'cpt_issue_companies', t: 'select', l: 'Companies that rejected me over CPT', o: { demote: 'Rank lower + warn', hide: 'Hide', ignore: 'Ignore' } }]],
-  ['Location', false, [
+  ['Location', true, [
+    { k: 'near_location', t: 'place', l: 'Near', h: 'A city, e.g. “Los Angeles, CA” or “LA”. Empty = anywhere.' },
+    { k: 'near_radius_miles', t: 'select', l: 'Within', num: 1, o: { 10: '10 miles', 25: '25 miles', 50: '50 miles', 100: '100 miles', 200: '200 miles', 500: '500 miles' } },
+    { k: 'near_include_remote', t: 'bool', l: 'Include remote jobs' },
+    { k: 'near_keep_unknown', t: 'bool', l: 'Keep jobs whose location can’t be mapped (“Multiple locations”)' },
     { k: 'us_only', t: 'bool', l: 'United States only' },
     { k: 'work_modes', t: 'multi', l: 'Work mode', o: { remote: 'Remote', hybrid: 'Hybrid', onsite: 'On-site' } },
     { k: 'locations_include', t: 'list', l: 'Cities / states (any of)', h: 'Remote jobs always pass' }]],
@@ -206,7 +210,7 @@ function sourceList(st) {
 }
 function jobRow(j) {
   return `<div class="list-row" data-open="${esc(j.id)}"><span class="score ${scoreCls(j.score)}">${Math.round(j.score)}</span>
-    <span class="grow"><b>${esc(j.title)}</b><br><span class="small mut">${esc(j.company)} · ${esc(shortLoc(j.location))} · posted ${ago(j.posted_at)}</span></span>
+    <span class="grow"><b>${esc(j.title)}</b><br><span class="small mut">${esc(j.company)} · ${esc(shortLoc(j.location))}${j.distance_mi != null ? ` (${j.distance_mi} mi)` : ''} · posted ${ago(j.posted_at)}</span></span>
     ${cptTag(j)}${j.days_left != null && j.days_left >= 0 ? `<span class="tag warn">${Math.ceil(j.days_left)}d left</span>` : ''}</div>`;
 }
 function bindRows(root) {
@@ -240,6 +244,7 @@ function fieldHtml(f) {
   if (f.t === 'multi') h = `<div class="opts">${Object.entries(f.o).map(([k, l]) => `<label><input type="checkbox" data-k="${f.k}" value="${esc(k)}" ${v.includes(k) ? 'checked' : ''}>${esc(l)}</label>`).join('')}</div>`;
   if (f.t === 'list') h = `<input type="text" data-k="${f.k}" value="${esc(v.join(', '))}">`;
   if (f.t === 'num') h = `<input type="number" data-k="${f.k}" value="${v}" min="0">`;
+  if (f.t === 'place') h = `<input type="text" data-k="${f.k}" value="${esc(v)}" list="dl-${f.k}" placeholder="Anywhere" autocomplete="off"><datalist id="dl-${f.k}"></datalist>`;
   if (f.t === 'time') h = `<input type="time" data-k="${f.k}" value="${esc(v)}" style="max-width:160px">`;
   if (f.t === 'select') h = `<select data-k="${f.k}">${Object.entries(f.o).map(([k, l]) => `<option value="${esc(k)}" ${String(v) === k ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>`;
   if (f.t === 'range') h = `<div class="range-row"><input type="range" data-k="${f.k}" min="0" max="1" step="0.05" value="${v}"><output>${v}</output></div>`;
@@ -258,6 +263,9 @@ function bindFields(root, onChange) {
       onChange();
     });
     if (f.t === 'range') el.oninput = () => el.nextElementSibling.textContent = el.value;
+    if (f.t === 'place') { let tm; el.addEventListener('input', () => { clearTimeout(tm); tm = setTimeout(async () => {
+      const opts = await api(`/geo/suggest?q=${enc(el.value)}`).catch(() => []);
+      el.nextElementSibling.innerHTML = opts.map(o => `<option value="${esc(o)}">`).join(''); }, 200); }); }
   });
 }
 const openGroups = new Set(store.get('openGroups', FILTERS.filter(g => g[1]).map(g => g[0])));
@@ -280,7 +288,8 @@ let saveTimer;
 function saveFilters() {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(async () => {
-    try { S = await put('/settings', S); if ($('#preset')) $('#preset').value = ''; renderActiveFilters(); loadJobs(); } catch (e) { toast(`Invalid setting: ${e.message}`); }
+    try { S = await put('/settings', S); if ($('#preset')) $('#preset').value = ''; renderActiveFilters(); loadJobs(); }
+    catch (e) { toast(e.message); S = await api('/settings'); renderFilters(); }  // put back what's actually saved
   }, 300);
 }
 function renderActiveFilters() {
@@ -303,7 +312,8 @@ async function loadJobs() {
 }
 function sorted(rows) {
   const by = { score: (a, b) => b.score - a.score, new: (a, b) => new Date(b.posted_at) - new Date(a.posted_at),
-    relevance: (a, b) => b.relevance - a.relevance, deadline: (a, b) => (a.days_left ?? 1e9) - (b.days_left ?? 1e9) }[sort];
+    relevance: (a, b) => b.relevance - a.relevance, deadline: (a, b) => (a.days_left ?? 1e9) - (b.days_left ?? 1e9),
+    nearest: (a, b) => (a.distance_mi ?? 1e9) - (b.distance_mi ?? 1e9) }[sort] || ((a, b) => b.score - a.score);
   return [...rows].sort(by);
 }
 function visibleRows() {
@@ -324,7 +334,7 @@ function listItem(j) {
   return `<div class="job ${j.id === selected ? 'sel' : ''} ${hid ? 'is-hidden' : ''}" data-id="${esc(j.id)}">
     <div class="t">${isUnseen(j) ? '<span class="unseen-dot" title="New since your last visit"></span>' : ''}${esc(j.title)}</div>
     <div class="score ${scoreCls(j.score)}" title="Score out of 100">${Math.round(j.score)}</div>
-    <div class="meta">${esc(j.company)} · ${esc(shortLoc(j.location))} · ${ago(j.posted_at)}</div>
+    <div class="meta">${esc(j.company)} · ${esc(shortLoc(j.location))}${j.distance_mi != null ? ` · <b>${j.distance_mi} mi</b>` : ''} · ${ago(j.posted_at)}</div>
     <div class="tags">${j.is_new ? '<span class="tag ok">NEW</span>' : ''}${cptTag(j)}
       ${j.status ? `<span class="tag ac">${SLABEL[j.status]}</span>` : ''}
       ${j.days_left != null && j.days_left >= 0 && j.days_left <= 14 ? `<span class="tag warn">${Math.ceil(j.days_left)}d left</span>` : ''}
@@ -374,6 +384,7 @@ function renderDetail(j, full) {
       <span>Education</span><span>${j.education?.length ? j.education.map(e => `<span class="tag warn">${esc(e.replace(/_/g, ' '))}</span>`).join(' ') : '<span class="ok">open to grad students</span>'}</span>
       <span>Season</span><span>${j.seasons?.length ? j.seasons.map(esc).join(', ') : '<span class="mut">not stated</span>'}</span>
       <span>Work mode</span><span>${esc(j.work_mode || '—')}</span>
+      ${j.near ? `<span>Distance</span><span>${j.distance_mi != null ? `${j.distance_mi} miles from ${esc(j.near)}` : '<span class="mut">location can’t be mapped</span>'}</span>` : ''}
       <span>Pay</span><span>${j.hourly ? `$${j.hourly[0]}${j.hourly[1] !== j.hourly[0] ? `–${j.hourly[1]}` : ''}/hour` : '<span class="mut">not listed</span>'}</span>
       <span>Deadline</span><span>${j.deadline ? `${dateOnly(j.deadline)} (${j.days_left < 0 ? 'passed' : `${Math.ceil(j.days_left)} days left`})` : '<span class="mut">not stated (usually rolling)</span>'}</span>
       ${j.warnings?.length ? `<span>Heads-up</span><span>${j.warnings.map(w => `<span class="tag warn">${esc(w)}</span>`).join(' ')}</span>` : ''}

@@ -53,6 +53,10 @@ class Settings(BaseModel):
     work_modes: list[WorkMode] = ["remote", "hybrid", "onsite"]
     us_only: bool = True
     locations_include: list[str] = []  # empty = anywhere
+    near_location: str = ""  # "Los Angeles, CA" / "LA" -> only jobs within near_radius_miles (empty = off)
+    near_radius_miles: int = 50
+    near_include_remote: bool = True  # remote jobs pass the radius filter
+    near_keep_unknown: bool = False  # keep jobs whose location can't be placed on a map ("Multiple locations")
     # time
     posted_within_days: int = 0  # 0 = any
     hide_expired: bool = True  # posting states an application deadline that has passed

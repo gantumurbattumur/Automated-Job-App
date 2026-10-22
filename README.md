@@ -18,7 +18,7 @@ uv pip install --python .venv/bin/python fastapi "uvicorn[standard]" sqlmodel ht
 
 ## Pages
 - **Home** – today's top new matches, deadlines this week, pipeline, follow-ups, what the ranking learned about you, source health.
-- **Jobs** – filters (left) · ranked list (middle, `j`/`k` to move) · details (right): why it ranks there, F-1/CPT eligibility,
+- **Jobs** – filters (left; includes LinkedIn-style "Near <city> within N miles" using a free offline city list) · ranked list (middle, `j`/`k` to move) · details (right): why it ranks there, F-1/CPT eligibility,
   H-1B history, resume help (which resume, which bullets to lead with, skill gaps, a copyable Claude prompt) and the packet.
 - **Tracker** – drag-and-drop board or table; tag "rejected over CPT" so that company ranks lower next time.
 - **Inbox** – Gmail connection and job emails to review. **Resumes** – upload/replace/revert resumes (PDF, DOCX, TXT),

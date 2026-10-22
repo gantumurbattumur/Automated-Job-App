@@ -46,7 +46,7 @@ def season_past(season: str, now: datetime) -> bool:
 
 def _is_us(location: str, rules: dict) -> bool | None:
     """True if any listed location is in the US; None when it says nothing (empty, or just "Remote")."""
-    if not re.sub(r"[^a-z]", "", location.lower().replace("remote", "")) or re.fullmatch(r"\s*\d+ locations\s*", location.lower()):
+    if not re.sub(r"[^a-z]", "", location.lower().replace("remote", "")) or re.fullmatch(r"\s*(\d+|multiple|various|several|many)\s+locations?\s*|\s*(flexible|anywhere|tbd|n/?a)\s*", location.lower()):
         return None
     codes = re.compile(rf"(?:,|\s)\s*(?:{'|'.join(rules['us_state_codes'])})\b")
     for seg in re.split(r"[;•|/]| or ", location):
