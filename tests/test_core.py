@@ -160,3 +160,11 @@ def test_greenhouse_parse():
                          "content": "&lt;p&gt;Hello &amp;amp; CPT&lt;/p&gt;", "first_published": "2026-10-19T10:00:00Z"}]}
     (j,) = greenhouse.parse("acme", payload)
     assert j.id == "greenhouse:acme:1" and "CPT" in j.description and "<" not in j.description
+
+
+def test_index_busts_cached_scripts():
+    from fastapi.testclient import TestClient
+    from backend.api import app
+    r = TestClient(app).get("/")
+    assert r.status_code == 200 and "/static/app.js?v=" in r.text and "/static/app.css?v=" in r.text
+    assert r.headers["cache-control"] == "no-cache"

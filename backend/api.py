@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sqlmodel import select
@@ -510,4 +510,10 @@ app.mount("/static", StaticFiles(directory=ROOT / "frontend"), name="static")
 
 @app.get("/", include_in_schema=False)
 def index():
-    return FileResponse(ROOT / "frontend" / "index.html")
+    """The page, with app.js/app.css URLs stamped by file time so a browser never pairs a new page with an old,
+    cached script (which left a blank screen after the Profile page was removed)."""
+    html = (ROOT / "frontend" / "index.html").read_text()
+    for name in ("app.js", "app.css"):
+        v = int((ROOT / "frontend" / name).stat().st_mtime)
+        html = html.replace(f"/static/{name}", f"/static/{name}?v={v}")
+    return HTMLResponse(html, headers={"Cache-Control": "no-cache"})

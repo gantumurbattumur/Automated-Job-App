@@ -127,7 +127,7 @@ const isUnseen = j => new Date(j.first_seen) > lastVisit;
 const PAGES = { home: renderHome, jobs: renderJobsPage, tracker: renderTracker, inbox: renderInbox, resumes: renderResumes, tailor: renderTailor, settings: renderSettings };
 function go(page) {
   page = PAGES[page] ? page : 'home';
-  for (const p in PAGES) $(`#page-${p}`).classList.toggle('hidden', p !== page);
+  for (const p in PAGES) $(`#page-${p}`)?.classList.toggle('hidden', p !== page);  // tolerate a stale index.html
   $$('#nav [data-page]').forEach(b => b.classList.toggle('on', b.dataset.page === page));
   if (location.hash !== `#${page}`) history.replaceState(null, '', `#${page}`);
   PAGES[page]().catch(e => toast(`Error: ${e.message}`));
