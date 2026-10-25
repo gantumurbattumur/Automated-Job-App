@@ -25,6 +25,13 @@ uv pip install --python .venv/bin/python fastapi "uvicorn[standard]" sqlmodel ht
   set the primary one and title keywords; every job is re-scored immediately and you see how your top 50 changed.
   **Profile** – your info + canned answers. **Settings** – schedule, alerts, cleanup/backups, run-at-login.
 
+## Autofill (Chrome extension)
+Fills applications inside your own Chrome (Greenhouse, Lever, Ashby, Workable, Workday) from your Profile — never submits.
+1. `chrome://extensions` → turn on **Developer mode** → **Load unpacked** → choose the `extension/` folder.
+2. Open a job with **Apply ↗**, click the blue **J Autofill** button on the form, review, submit yourself.
+Essay questions get a "Draft with Claude" button that copies a prompt. Submitting (or "I submitted it") marks the job
+applied in the tracker. The extension only talks to JobPrep at `http://127.0.0.1:8000` (change it in its popup).
+
 Run in the background at login instead of a terminal: `scripts/install_service.sh` (undo: `scripts/uninstall_service.sh`).
 
 ## How it works

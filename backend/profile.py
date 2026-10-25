@@ -71,7 +71,8 @@ DEFAULT_ANSWERS = [
            patterns=["currently enrolled", "currently pursuing", "enrolled in a degree"]),
     Answer(question="Will you return to school after the internship?", answer="Yes", patterns=["return to school", "returning to school"]),
     Answer(question="Are you willing to relocate?", answer="Yes", patterns=["willing to relocate", "open to relocation"]),
-    Answer(question="Are you able to work on-site / hybrid?", answer="Yes", patterns=["work on-site", "work onsite", "in-office", "hybrid"]),
+    Answer(question="Are you able to work on-site / hybrid?", answer="Yes",
+           patterns=["able to work on-site", "able to work onsite", "work in-office", "comfortable working on-site"]),
     Answer(question="How did you hear about this position?", answer="Online job board",
            patterns=["how did you hear", "how did you learn about", "where did you hear"]),
     Answer(question="Gender", answer="Decline to self-identify", patterns=["gender"]),
@@ -80,6 +81,10 @@ DEFAULT_ANSWERS = [
     Answer(question="Veteran status", answer="I am not a protected veteran", patterns=["veteran"]),
     Answer(question="Disability status", answer="I do not want to answer", patterns=["disability"]),
 ]
+
+
+# patterns that turned out too broad: "hybrid" matched "Are you located in the Bay Area and able to work hybrid?"
+RETIRED_PATTERNS = {"Are you able to work on-site / hybrid?": ("hybrid", "work on-site", "work onsite", "in-office")}
 
 
 def _seed() -> Profile:
@@ -110,6 +115,7 @@ def get() -> Profile:
     defaults = {a.question: a for a in DEFAULT_ANSWERS}
     for a in p.answers:
         if a.question in defaults:
+            a.patterns = [x for x in a.patterns if x not in RETIRED_PATTERNS.get(a.question, ())]
             a.patterns += [x for x in defaults[a.question].patterns if x not in a.patterns]
     return p
 

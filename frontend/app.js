@@ -203,6 +203,9 @@ async function renderHome() {
     </div>`;
   bindRows($('#page-home'));
 }
+// forms the JobPrep Chrome extension fills (extension/manifest.json content_scripts)
+const autofillReady = url => /(^|\.)greenhouse\.io$|^jobs\.lever\.co$|^jobs\.ashbyhq\.com$|^apply\.workable\.com$|myworkday(jobs|site)?\.com$/
+  .test((() => { try { return new URL(url).hostname; } catch (e) { return ''; } })());
 const kpi = (v, l) => `<div class="card kpi"><div class="v">${v}</div><div class="l">${l}</div></div>`;
 function sourceList(st) {
   return [['morning', 'Morning run (everything)'], ['simplify', 'SimplifyJobs internship list'], ['ats', 'Company job boards'], ['gmail', 'Gmail scan'], ['digest', 'Morning digest'], ['maintenance', 'Cleanup & backup']]
@@ -361,7 +364,8 @@ function renderDetail(j, full) {
       <div class="small mut">Posted ${ago(j.posted_at)} (${day(j.posted_at)}) · via ${esc(SRC[j.source] || j.source)}${j.also?.length ? ` · also on ${j.also.map(a => esc(SRC[a.source] || a.source)).join(', ')}` : ''}</div>
       <div class="actions">
         <button class="btn primary" data-act="apply" title="Opens the posting; Simplify can fill it. Shortcut: a">Apply ↗</button>
-        <button class="btn" data-act="autofill" title="A separate browser fills the form and stops before Submit">Autofill</button>
+        ${autofillReady(j.url) ? '<span class="tag ok" title="Open the posting with Apply ↗ and click the JobPrep button on the form (Chrome extension)">⚡ Autofill ready</span>'
+          : '<span class="tag" title="Not a form the JobPrep extension knows yet — use Simplify or fill it by hand">Manual / Simplify</span>'}
         <button class="btn" data-act="saved">☆ Save</button>
         <button class="btn" data-act="applied">✓ Mark applied</button>
         <button class="btn danger" data-act="dismissed" title="Hide it and teach the ranking. Shortcut: x">✕ Not interested</button>
@@ -433,12 +437,6 @@ async function loadPacket(id) {
 async function setStatus(id, status, extra = {}) { await put(`/applications/${enc(id)}`, { status, ...extra }); }
 async function act(what, j, btn) {
   if (what === 'apply') { window.open(j.url, '_blank', 'noopener'); await setStatus(j.id, 'opened', { source: 'apply_prompt' }); pending = j; return; }
-  if (what === 'autofill') {
-    btn.disabled = true; btn.textContent = 'Opening browser…';
-    try { const r = await post(`/autofill/${enc(j.id)}`); if (r.error) { toast(r.error); btn.textContent = 'Unavailable'; } else { btn.textContent = 'Browser opened'; pending = j; } }
-    catch (e) { toast(e.message); btn.textContent = 'Failed'; }
-    return;
-  }
   if (['saved', 'applied', 'dismissed'].includes(what)) {
     await setStatus(j.id, what);
     toast({ saved: 'Saved to tracker', applied: 'Marked applied', dismissed: 'Hidden — the ranking learns from this' }[what]);
@@ -715,6 +713,12 @@ async function renderSettings() {
       ${SETTINGS_GROUPS.map(([t, d, fs]) => `<div class="card"><div class="hd"><h2>${t}</h2></div><div class="bd"><p class="small mut" style="margin:0 0 6px">${d}</p>${fs.map(fieldHtml).join('')}
         ${t === 'Maintenance' ? `<div class="row" style="margin-top:10px"><button class="btn sm" id="backupNow">Back up now</button>
           <span class="small mut">${st.maintenance ? `last cleanup ${ago(st.maintenance.last_run)}${st.maintenance.pruned != null ? ` · removed ${st.maintenance.pruned} old postings` : ''}` : ''}</span></div>` : ''}</div></div>`).join('')}
+      <div class="card"><div class="hd"><h2>Browser extension (Autofill)</h2></div><div class="bd small" id="extCard">
+        <p style="margin:0">Fills applications inside your own Chrome — Greenhouse, Lever, Ashby, Workable and Workday — from your Profile. Never submits.</p>
+        <ol class="steps"><li>Open <code class="copy" data-copy="chrome://extensions">chrome://extensions</code> and turn on <b>Developer mode</b> (top right).</li>
+          <li>Click <b>Load unpacked</b> and choose the <code>extension</code> folder inside the JobPrep project.</li>
+          <li>Open a job with <b>Apply ↗</b>, then click the blue <b>J Autofill</b> button at the bottom-right of the form.</li></ol>
+        <div id="extRuns" class="mut">Checking recent activity…</div></div></div>
       <div class="card"><div class="hd"><h2>Run at login</h2></div><div class="bd small">
         <p style="margin:0">Keeps JobPrep running in the background so refreshes, alerts and the digest happen even when no terminal is open.</p>
         <ol class="steps"><li>Stop the server you started in Terminal (Ctrl-C).</li>
@@ -728,6 +732,9 @@ async function renderSettings() {
   bindFields($('#page-settings'), async () => { try { const mode = S.schedule; S = await put('/settings', S); toast('Saved'); if (mode !== st.schedule?.mode) renderSettings(); } catch (e) { toast(e.message); } });
   $('#page-settings .card .hd h2').insertAdjacentHTML('afterend', '<button class="btn sm" id="runMorning">Run morning routine now</button>');
   $('#runMorning').onclick = async () => { const r = await post('/refresh?source=morning'); toast(r.started ? 'Morning routine started — takes a few minutes' : 'Already running'); };
+  api('/ext/runs').then(runs => { $('#extRuns').innerHTML = runs.length
+    ? `<b>Recent fills:</b><br>${runs.slice(0, 5).map(r => `${ago(r.at)} · ${esc(r.company || new URL(r.url).hostname)} · ${r.status === 'applied' ? '<span class="ok">applied</span>' : `${r.filled} filled${r.missing.length ? `, ${r.missing.length} left` : ''}`}`).join('<br>')}`
+    : 'No fills yet — after you install it, they show up here.'; }).catch(() => {});
   if ($('#backupNow')) $('#backupNow').onclick = async () => { const r = await post('/maintenance/backup'); toast(`Backed up to ${r.path.split('/').slice(-2).join('/')}`); };
 }
 

@@ -19,7 +19,7 @@ FIELDS = [
     (r"preferred", "preferred_name"),
     (r"first\s*name|given\s*name", "first_name"),
     (r"last\s*name|family\s*name|surname", "last_name"),
-    (r"^\s*(full\s*|legal\s*)?name\s*\*?\s*$", "full_name"),
+    (r"^\s*(your\s+)?(full\s*)?(legal\s*)?name\s*\*?\s*$", "full_name"),
     (r"e-?mail", "email"),
     (r"phone|mobile", "phone"),
     (r"linkedin", "linkedin"),
@@ -151,7 +151,7 @@ def _pick(options: list[str], answer: str) -> str | None:
     if DECLINE.search(answer):
         # every form words "I won't say" differently; any such option is the same answer
         for o in options:
-            if re.search(r"decline|prefer not|don.?t (wish|want)|not to (answer|disclose|say|self)|choose not|rather not", o, re.I):
+            if re.search(r"decline|prefer not|(don.?t|do not) (wish|want)|not to (answer|disclose|say|self)|choose not|rather not", o, re.I):
                 return o
     for o in options:
         if norm(o) == a:

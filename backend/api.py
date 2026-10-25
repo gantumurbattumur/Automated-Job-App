@@ -11,14 +11,15 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sqlmodel import select
 
-from . import digest, feed, geo, gmail, maintenance, profile, resume, settings, tracker
+from . import digest, extension, feed, geo, gmail, maintenance, profile, resume, settings, tracker
 from . import refresh as refresh_mod
 from .config import DATA, ROOT, load
 from .models import Application, InboxItem, Job, init_db, session
 from .settings import Settings
 
 app = FastAPI(title="Job Prep")
-app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173"], allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173"], allow_origin_regex=r"chrome-extension://[a-z]+",
+                   allow_methods=["*"], allow_headers=["*"])
 
 
 @app.on_event("startup")
@@ -362,6 +363,34 @@ def autofill(job_id: str):
     log = open(DATA / "autofill.log", "a")
     subprocess.Popen([sys.executable, "-m", "backend.autofill", job_id], cwd=ROOT, stdout=log, stderr=log)
     return {"started": True, "title": j.title, "company": j.company}
+
+
+@app.get("/ext/context")
+def ext_context(url: str, company: str = "", title: str = ""):
+    """What the Chrome extension needs to fill the application on `url`."""
+    return extension.context(url, company, title)
+
+
+class ExtResult(BaseModel):
+    url: str
+    status: str = "filled"  # filled | opened | applied
+    filled: int = 0
+    missing: list[str] = []
+    job_id: str | None = None
+    company: str = ""
+    title: str = ""
+
+
+@app.post("/ext/result")
+def ext_result(body: ExtResult):
+    if body.status not in ("filled", "opened", "applied"):
+        raise HTTPException(422, "status must be filled, opened or applied")
+    return extension.record(body.url, body.status, body.filled, body.missing, body.job_id, body.company, body.title)
+
+
+@app.get("/ext/runs")
+def ext_runs():
+    return extension.runs
 
 
 class GmailConnect(BaseModel):

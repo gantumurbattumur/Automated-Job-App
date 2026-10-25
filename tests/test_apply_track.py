@@ -231,3 +231,16 @@ def test_education_years_for_autofill():
     v = autofill.values(p)
     assert autofill.answer_for("Start date year*", "x", p, v) == "2026"
     assert autofill.answer_for("End date year*", "x", p, v) == "2028"
+
+
+def test_bay_area_hybrid_question_is_not_answered_yes():
+    p = P()
+    assert profile.match_answer("Are you located in the San Francisco Bay Area and able to work hybrid 3 days a week?", "x", p) is None
+    assert profile.match_answer("Are you able to work on-site?", "x", p)["answer"] == "Yes"
+
+
+def test_full_legal_name():
+    p = P(first_name="Gana", last_name="B")
+    v = autofill.values(p)
+    for label in ("Full Legal Name", "Legal name", "Name", "Your full name"):
+        assert autofill.answer_for(label, "x", p, v) == "Gana B", label

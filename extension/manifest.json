@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "JobPrep Autofill",
+  "version": "1.0.0",
+  "description": "Fills job applications from your local JobPrep profile. Never submits. Talks only to JobPrep on this computer.",
+  "permissions": ["storage", "activeTab", "scripting"],
+  "host_permissions": ["http://127.0.0.1/*", "http://localhost/*"],
+  "background": { "service_worker": "background.js" },
+  "action": { "default_title": "JobPrep Autofill", "default_popup": "popup.html" },
+  "content_scripts": [{
+    "matches": [
+      "*://*.greenhouse.io/*", "*://jobs.lever.co/*", "*://jobs.ashbyhq.com/*", "*://apply.workable.com/*",
+      "*://*.myworkdayjobs.com/*", "*://*.myworkday.com/*", "*://*.myworkdaysite.com/*"
+    ],
+    "js": ["content/match.js", "content/fill.js", "content/workday.js", "content/ui.js", "content/main.js"],
+    "run_at": "document_idle",
+    "all_frames": true
+  }]
+}
