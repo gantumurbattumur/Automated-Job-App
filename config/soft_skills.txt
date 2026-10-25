@@ -1,0 +1,14 @@
+# Soft skills recruiters scan for (canonical | aliases). Whole-word, case-insensitive.
+communication | communicate | written and verbal communication | verbal communication | written communication
+collaboration | collaborate | collaborative | teamwork | team player | work in a team | cross-functional
+leadership | lead | mentoring | mentor
+problem solving | problem-solving | solve problems | troubleshooting
+analytical | analytical skills | analysis | critical thinking
+ownership | self-starter | self-directed | proactive | initiative
+adaptability | adaptable | ambiguity | fast-paced | flexible
+attention to detail | detail-oriented | detail oriented
+organization | organizational | time management | prioritize | prioritization
+curiosity | curious | eager to learn | growth mindset | continuous learning
+creativity | creative | innovative | innovation
+customer focus | customer-focused | user-focused | stakeholder
+presentation | presenting | present findings | storytelling

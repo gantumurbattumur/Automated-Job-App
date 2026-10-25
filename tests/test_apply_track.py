@@ -4,7 +4,7 @@ import pytest
 from sqlalchemy.pool import StaticPool
 from sqlmodel import SQLModel, create_engine
 
-from backend import gmail, models, profile, tracker
+from backend import gmail, models, tracker
 from backend.models import Application, InboxItem, Job
 
 NOW = datetime.now(timezone.utc)
@@ -20,35 +20,6 @@ def db(monkeypatch):
             s.add(Job(id=f"j{i}", source="t", company=co, title="SWE Intern", url="u", posted_at=NOW))
         s.commit()
     return engine
-
-
-# --- profile & answers --------------------------------------------------------
-
-def P(**kw):
-    return profile.Profile(answers=profile.DEFAULT_ANSWERS, worked_at=["F5 Networks", "F5"], **kw)
-
-
-def test_worked_here_answer_depends_on_company():
-    p = P()
-    ans = lambda co: next(a for a in profile.answers_for(co, p) if "worked for" in a["question"])["answer"]  # noqa: E731
-    assert ans("F5") == "Yes" and ans("F5, Inc.") == "Yes" and ans("Stripe") == "No"
-    assert not profile.worked_at("Pinecone", profile.Profile(worked_at=["Pinecone Academy"]))  # not the same company
-
-
-def test_form_label_matching():
-    p = P()
-    m = lambda label, co="Stripe": (profile.match_answer(label, co, p) or {}).get("answer")  # noqa: E731
-    assert m("Will you now or in the future require sponsorship for employment visa status?") == "Yes"
-    assert m("Do you currently require visa sponsorship?") == "No"
-    assert m("Are you legally authorized to work in the United States?") == "Yes"
-    assert m("Have you ever worked for F5?", "F5") == "Yes"
-    assert m("What is your gender?") == "Decline to self-identify"
-    assert m("Tell us about a project you are proud of") is None
-
-
-def test_profile_fields_skip_empty():
-    labels = [f["label"] for f in profile.fields(P(first_name="Gana", email="g@x.com"))]
-    assert "Email" in labels and "Phone" not in labels
 
 
 # --- tracker ------------------------------------------------------------------
@@ -132,55 +103,6 @@ def test_ingest_updates_tracker_and_queues_unknown(db):
         assert item.state == "new" and item.company_guess == "Acme"
 
 
-# --- autofill helpers (the browser part is tested by hand: it never submits) ---
-from backend import autofill  # noqa: E402
-
-
-def test_pick_options():
-    assert autofill._pick(["California State University - Chico", "California State University - Dominguez Hills"],
-                          "California State University, Dominguez Hills") == "California State University - Dominguez Hills"
-    assert autofill._pick(["Master of Business Administration (M.B.A.)", "Master's Degree"], "Master of Science") == "Master's Degree"
-    assert autofill._pick(["Carson City, Nevada, United States", "Carson, California, United States"], "Carson, CA") == \
-        "Carson, California, United States"
-    assert autofill._pick(["Decline To Self Identify", "Male", "Female"], "Decline to self-identify") == "Decline To Self Identify"
-    assert autofill._pick(["Yes", "No"], "Yes") == "Yes"
-    assert autofill._pick(["Biology", "Chemistry"], "Computer Science") is None
-
-
-def test_answer_for_labels():
-    p = P(first_name="Gana", last_name="B", email="g@x.com", graduation="May 2028")
-    v = autofill.values(p)
-    a = lambda label, co="Stripe": autofill.answer_for(label, co, p, v)  # noqa: E731
-    assert a("First Name*") == "Gana" and a("Email*") == "g@x.com" and a("End date year*") == "2028"
-    assert a("Will you now or in the future require sponsorship?") == "Yes"  # canned answer beats field names
-    assert a("Have you previously worked for F5?", "F5") == "Yes"
-    assert a("Why do you want to work here?") is None
-
-
-def test_apply_urls():
-    assert autofill._apply_url("https://jobs.lever.co/acme/123") == "https://jobs.lever.co/acme/123/apply"
-    assert autofill._apply_url("https://jobs.ashbyhq.com/acme/u1") == "https://jobs.ashbyhq.com/acme/u1/application"
-    assert autofill._apply_url("https://job-boards.greenhouse.io/acme/jobs/1") == "https://job-boards.greenhouse.io/acme/jobs/1"
-    assert autofill.CONFIRM.search("Thank you for applying! We'll be in touch.")
-
-
-def test_decline_options_and_more_phrasings():
-    assert autofill._pick(["Male", "Female", "I don't wish to answer"], "Decline to self-identify") == "I don't wish to answer"
-    assert autofill._pick(["Yes", "No", "Prefer not to say"], "I do not want to answer") == "Prefer not to say"
-    p = P(location="Carson, CA", major="Computer Science")
-    v = autofill.values(p)
-    assert autofill.answer_for("Where are you currently based?", "x", p, v) == "Carson, CA"
-    assert autofill.answer_for("What course are you studying?", "x", p, v) == "Computer Science"
-    assert autofill.answer_for("Do you require any employment authorization sponsorship now or in the future?", "x", p, v) == "Yes"
-
-
-def test_required_markers_and_punctuation():
-    p = P(first_name="Gana", last_name="B")
-    v = autofill.values(p)
-    assert autofill.answer_for("Full name ✱", "x", p, v) == "Gana B"
-    assert autofill.answer_for("Do you now, or will you in the future, require immigration sponsorship?", "x", p, v) == "Yes"
-
-
 # --- email -> company / role / suggestions ---------------------------------------
 
 @pytest.mark.parametrize("sender,subject,body,company,role", [
@@ -226,21 +148,3 @@ def test_backfill_unknown_roles(db):
         assert s.get(Job, a.job_id).title == "Back End Developer Intern 2027"
 
 
-def test_education_years_for_autofill():
-    p = P(start="August 2026", graduation="May 2028")
-    v = autofill.values(p)
-    assert autofill.answer_for("Start date year*", "x", p, v) == "2026"
-    assert autofill.answer_for("End date year*", "x", p, v) == "2028"
-
-
-def test_bay_area_hybrid_question_is_not_answered_yes():
-    p = P()
-    assert profile.match_answer("Are you located in the San Francisco Bay Area and able to work hybrid 3 days a week?", "x", p) is None
-    assert profile.match_answer("Are you able to work on-site?", "x", p)["answer"] == "Yes"
-
-
-def test_full_legal_name():
-    p = P(first_name="Gana", last_name="B")
-    v = autofill.values(p)
-    for label in ("Full Legal Name", "Legal name", "Name", "Your full name"):
-        assert autofill.answer_for(label, "x", p, v) == "Gana B", label

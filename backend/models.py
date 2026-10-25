@@ -40,9 +40,24 @@ class Application(SQLModel, table=True):
     opened_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     follow_up: Optional[str] = None  # YYYY-MM-DD
-    source: str = "manual"  # manual | apply_prompt | gmail | autofill
+    source: str = "manual"  # manual | apply_prompt | gmail
     cpt_issue: bool = False  # you were turned down because of CPT / visa status
     notes: str = ""
+
+
+class TailorItem(SQLModel, table=True):
+    """A job you're tailoring your resume for (up to 10 at a time): its description, chosen resume, and the
+    bullet suggestions pasted back from Claude with your accept/reject decisions."""
+    id: str = Field(primary_key=True)  # job id, or "paste:<n>" for a pasted description
+    job_id: Optional[str] = None
+    company: str = ""
+    title: str = ""
+    url: str = ""
+    jd_text: str = ""
+    lane: str = ""  # resume to tailor (empty = the job's best match)
+    added_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    data: dict = Field(default_factory=dict, sa_column=Column(JSON))  # parsed suggestions + statuses
+    baseline: Optional[float] = None  # match score when first analyzed, to show progress
 
 
 class InboxItem(SQLModel, table=True):
@@ -84,7 +99,7 @@ def _add_missing_columns() -> None:
             have = {c["name"] for c in insp.get_columns(table.name)}
             for col in table.columns:
                 if col.name not in have:
-                    default = {"closed": " DEFAULT 0", "meta": " DEFAULT '{}'", "cpt_issue": " DEFAULT 0"}.get(col.name, "")
+                    default = {"closed": " DEFAULT 0", "meta": " DEFAULT '{}'", "cpt_issue": " DEFAULT 0", "data": " DEFAULT '{}'"}.get(col.name, "")
                     conn.execute(text(f"ALTER TABLE {table.name} ADD COLUMN {col.name} {col.type.compile(engine.dialect)}{default}"))
 
 

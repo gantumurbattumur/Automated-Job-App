@@ -229,5 +229,4 @@ def changed() -> None:
     """A resume changed: drop everything derived from the old text so the next ranking uses the new one."""
     from . import feed, relevance
     relevance.lanes.cache_clear()
-    relevance._lane_lines.cache_clear()
     feed.invalidate()

@@ -7,7 +7,7 @@ from functools import lru_cache
 import numpy as np
 from sqlmodel import select
 
-from .config import ROOT, load
+from .config import ROOT
 from .filters import _rx
 from .models import Job, JobVector, session
 
@@ -178,48 +178,3 @@ def _lines(text: str) -> list[str]:
         bullets.append(cur)
     return [b for b in bullets if len(b) >= 40]
 
-
-@lru_cache
-def _lane_lines() -> dict[str, tuple[list[str], np.ndarray]]:
-    from . import resume
-    return {name: (ls := _lines(text), embed(ls)) for name, text in resume.lane_texts().items()}
-
-
-def resume_help(j: Job, n_bullets: int = 5) -> dict:
-    """Which resume to send, which of your bullets to lead with, and which missing skills you actually have elsewhere."""
-    vec = ensure_vectors([j])[j.id]
-    L = lanes()
-    sims = {name: float(np.sort(L[name]["vecs"] @ vec)[-3:].mean()) for name in L}
-    lane = max(sims, key=sims.get)
-    lines, lvecs = _lane_lines()[lane]
-    order = np.argsort(lvecs @ vec)[::-1][:n_bullets] if len(lines) else []
-    js = job_skills(j)
-    have_any = set().union(*(L[n]["skills"] for n in L))
-    missing = sorted(js - L[lane]["skills"])
-    return {
-        "lane": lane, "lane_similarity": {k: round(v, 3) for k, v in sorted(sims.items(), key=lambda t: -t[1])},
-        "bullets": [{"text": lines[i], "similarity": round(float(lvecs[i] @ vec), 3)} for i in order],
-        "matched": sorted(js & L[lane]["skills"]),
-        "missing_but_on_other_resume": [s for s in missing if s in have_any],
-        "missing": [s for s in missing if s not in have_any],
-    }
-
-
-def claude_prompt(j: Job, help: dict, resume_text: str) -> str:
-    """Paste into Claude (your existing plan) for a tailored rewrite. Nothing is sent automatically."""
-    skills = ", ".join(help["matched"] + help["missing_but_on_other_resume"]) or "(none detected)"
-    return f"""Help me tailor my resume for this internship. Only use experience that is already in my resume — do not invent \
-anything, and flag any job requirement I can't honestly claim.
-
-JOB: {j.title} at {j.company} ({j.location})
-{j.description[:5000]}
-
-MY RESUME ({help['lane']}):
-{resume_text[:6000]}
-
-Please:
-1. Pick the 3-5 bullets I should lead with and rewrite them to mirror this job's wording (same facts, same numbers).
-2. Suggest a one-line summary for the top of the resume aimed at this role.
-3. Write my Skills section ordered for this job. Skills it asks for that I have: {skills}.
-4. List requirements I don't meet ({', '.join(help['missing']) or 'none detected'}) and whether any project of mine is close enough to mention.
-5. Keep it to one page."""

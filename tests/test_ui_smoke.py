@@ -78,7 +78,7 @@ def test_ui_end_to_end(server):
         page.goto(f"{server}/#home")
         page.wait_for_selector("#page-home >> text=Today’s top matches", timeout=120000)
 
-        # Jobs: ranked list, detail with score breakdown, eligibility, resume help, packet
+        # Jobs: ranked list, detail with score breakdown, eligibility, resume match
         page.click("#nav [data-page=jobs]")
         page.wait_for_selector("#list .job", timeout=120000)
         titles = page.locator("#list .job .t").all_inner_texts()
@@ -86,8 +86,7 @@ def test_ui_end_to_end(server):
         assert not any("Software Engineering Intern" in t for t in titles)  # citizenship required -> hidden
         page.locator("#list .job", has_text="Machine Learning Intern").click()
         page.wait_for_selector("text=Why it ranks here")
-        page.wait_for_selector("#resumeHelp h4", timeout=60000)
-        page.wait_for_selector("#packet table")
+        page.wait_for_selector("#detail >> text=Resume match")
         elig = page.locator("#detail .card", has_text="Eligibility for you").inner_text()
         assert "CPT friendly" in elig and "Dec 1" in elig
 
@@ -143,13 +142,30 @@ def test_ui_end_to_end(server):
             tmp_resume.unlink()
         assert "Earlier versions (1)" in page.inner_text("#page-resumes") and "pandas" in page.inner_text("#page-resumes")
 
-        # profile save round-trip
-        page.click("#nav [data-page=profile]")
-        page.wait_for_selector("#page-profile >> text=Undergraduate")
-        page.fill("[data-p=graduation]", "May 2028")
-        page.click("#pSave")
-        page.wait_for_timeout(800)
-        assert httpx.get(f"{server}/profile").json()["graduation"] == "May 2028"
+        # tailor: paste a job description -> analysis; import Claude's reply -> accept -> score goes up; export is text
+        page.click("#nav [data-page=tailor]")
+        page.wait_for_selector("#tpaste")
+        jd = ("Responsibilities: Build machine learning pipelines in Python and PyTorch, and ship REST APIs with FastAPI. "
+              "Minimum qualifications: Pursuing a degree in Computer Science. Experience with SQL and Docker. "
+              "Strong communication and collaboration skills. Preferred qualifications: Experience with Kubernetes and Kafka.")
+        page.fill("#tpaste [name=company]", "Kappa Labs")
+        page.fill("#tpaste [name=title]", "Machine Learning Engineer Intern")
+        page.fill("#tpaste [name=jd]", jd)
+        page.click("#tpaste button")
+        page.wait_for_selector("#tdetail >> text=match now", timeout=120000)
+        assert "Kubernetes" in page.inner_text("#tdetail") and "Requirements" in page.inner_text("#tdetail")
+        item = httpx.get(f"{server}/tailor").json()["items"][0]
+        assert "truthful" in httpx.get(f"{server}/tailor/{item['id']}/prompt").json()["prompt"]
+        reply = '{"suggestions": [{"type": "new", "target": "", "text": "Containerized PyTorch model services with Docker and Kubernetes for repeatable deploys.", "keywords": ["Kubernetes"], "why": "preferred"}], "skills_to_add": [], "summary": "", "gaps": ["Kafka"]}'
+        page.fill("#treply", reply)
+        page.click("#timport")
+        page.wait_for_selector("#tdetail >> text=Review suggestions")
+        page.click("#tdetail [data-dec=accepted]")
+        page.wait_for_selector("#tdetail >> text=with accepted bullets")
+        after = httpx.get(f"{server}/tailor").json()["items"][0]
+        assert after["with_accepted"] > after["score"] and after["accepted"] == 1
+        export = httpx.get(f"{server}/tailor/{item['id']}/export").text
+        assert "ADD: Containerized PyTorch" in export and "%PDF" not in export
 
         # inbox: role + company read from the email, one-click best match moves it into the tracker
         page.click("#nav [data-page=inbox]")

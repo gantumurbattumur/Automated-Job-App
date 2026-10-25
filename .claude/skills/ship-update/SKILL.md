@@ -31,7 +31,7 @@ From the project root (`/Users/ganabattumur/GANA/projects/Automated Job App ` �
      (`http://127.0.0.1:8000/#<page>`), look at the screenshots, and check for console errors.
    - Data/ranking/sources: exercise it on the real database **read-only** (separate process with
      `JOBPREP_NO_SCHEDULER=1`; don't change the user's saved settings — use `settings.get().model_copy(update=...)`).
-   - Extension: live forms with a dummy profile on a scratch server; never click Submit on a real application.
+   - Tailoring: run it on a scratch copy of jobs.db/data (`JOBPREP_DB`/`JOBPREP_DATA`) so the user's list isn't touched.
    The user's own server usually runs with `--reload`, so it picks up backend edits by itself.
 
 ## 2. Review — read the diff like a reviewer
@@ -43,15 +43,16 @@ git status --short && git diff --stat && git diff
 Check, and fix anything you find before committing:
 - **Correctness:** edge cases, error handling at boundaries (network, parsing, missing files), off-by-one,
   timezones (dates stored as UTC; deadlines shown with `timeZone: 'UTC'`), duplicates, caching invalidation
-  (`feed.invalidate()`, `resume.changed()`).
+  (`feed.invalidate()`, `resume.changed()`). Tailoring suggestions must stay truthful — never add prompt text that
+  encourages invented experience.
 - **Scope:** only what was asked; no stray debug code (`console.log`, `print`, `JPDBG`), no leftover temp files.
 - **Consistency:** matches surrounding style and comment density; README updated if a user-facing feature changed.
 - **Privacy & secrets** — the GitHub repo is **public**:
   ```
   git diff --cached --name-only
-  # your email/phone/name are read from the gitignored profile, so they never appear in this public file
-  .venv/bin/python -c "import yaml,re,subprocess; p=yaml.safe_load(open('data/profile.yaml')) or {}; \
-  terms=[t for t in (p.get('email'), p.get('phone'), re.sub(r'\D','',p.get('phone') or '')[-7:]) if t]; \
+  # your email/phone are read from your own (gitignored) resumes, so they never appear in this public file
+  .venv/bin/python -c "import re,subprocess; from backend import resume; t=' '.join(resume.lane_texts().values()); \
+  terms=set(re.findall(r'[\w.+-]+@[\w-]+\.[\w.]+',t))|{re.sub(r'\D','',m)[-7:] for m in re.findall(r'\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}',t)}; \
   pat='|'.join(map(re.escape,terms))+r'|app_password\s*=\s*[\"\x27]\w|api[_-]?key\s*='; \
   r=subprocess.run(['git','grep','--cached','-nIE',pat,'--','.'],capture_output=True,text=True); print(r.stdout or 'privacy check: clean')"
   ```

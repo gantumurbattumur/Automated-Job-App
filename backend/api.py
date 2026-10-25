@@ -1,8 +1,5 @@
-import subprocess
-import sys
 import threading
 from datetime import datetime, timezone
-from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,15 +8,14 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sqlmodel import select
 
-from . import digest, extension, feed, geo, gmail, maintenance, profile, resume, settings, tracker
+from . import digest, feed, geo, gmail, maintenance, resume, settings, tailor, tracker
 from . import refresh as refresh_mod
-from .config import DATA, ROOT, load
+from .config import ROOT
 from .models import Application, InboxItem, Job, init_db, session
 from .settings import Settings
 
 app = FastAPI(title="Job Prep")
-app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173"], allow_origin_regex=r"chrome-extension://[a-z]+",
-                   allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173"], allow_methods=["*"], allow_headers=["*"])
 
 
 @app.on_event("startup")
@@ -111,33 +107,6 @@ def delete_preset(name: str):
     return settings.delete_preset(name)
 
 
-@app.get("/profile")
-def get_profile() -> profile.Profile:
-    return profile.get()
-
-
-@app.put("/profile")
-def put_profile(p: profile.Profile) -> profile.Profile:
-    return profile.save(p)
-
-
-@app.get("/jobs/{job_id}/packet")
-def packet(job_id: str):
-    """Everything needed to fill this application: resume to upload, skill gaps, your info, canned answers."""
-    with session() as s:
-        j = s.get(Job, job_id)
-    if not j:
-        raise HTTPException(404, "unknown job")
-    row = next((x for x in feed.build_cached(settings.get()) if x["id"] == job_id), {})
-    lane = row.get("best_lane") if row.get("best_lane") in resume.names() else resume.primary()
-    p = profile.get()
-    return {"job": {"id": j.id, "company": j.company, "title": j.title, "url": j.url},
-            "resume": {"lane": lane, "url": f"/resume/{lane}", "file": resume.path(lane).name},
-            "skills": {"matched": row.get("skills_matched", []), "missing": row.get("skills_missing", [])},
-            "worked_here": profile.worked_at(j.company, p),
-            "fields": profile.fields(p), "answers": profile.answers_for(j.company, p)}
-
-
 @app.get("/jobs/{job_id}")
 def job_detail(job_id: str):
     """One feed row plus the full description (the list leaves descriptions out to stay small)."""
@@ -172,18 +141,6 @@ def home():
             "follow_ups": [a for a in apps if a["follow_up"] and a["follow_up"] <= today and a["status"] in ("applied", "oa", "interview")],
             "recent": apps[:6], "personal": feed.personal_info(), "sources": refresh_mod.status,
             "gmail": bool(gmail.address())}
-
-
-@app.get("/jobs/{job_id}/resume-help")
-def resume_help(job_id: str):
-    from . import relevance
-    with session() as s:
-        j = s.get(Job, job_id)
-    if not j:
-        raise HTTPException(404, "unknown job")
-    h = relevance.resume_help(j)
-    h["prompt"] = relevance.claude_prompt(j, h, resume.text(h["lane"]))
-    return h
 
 
 @app.get("/digest")
@@ -349,48 +306,102 @@ def delete_application(job_id: str):
     return {"deleted": job_id}
 
 
-@app.post("/autofill/{job_id:path}")
-def autofill(job_id: str):
-    """Open a visible browser that fills this application and stops before Submit."""
-    with session() as s:
-        j = s.get(Job, job_id)
-    if not j:
-        raise HTTPException(404, "unknown job")
-    try:
-        import playwright  # noqa: F401
-    except ImportError:
-        return {"started": False, "error": "Playwright isn't installed: .venv/bin/pip install playwright && .venv/bin/python -m playwright install chromium"}
-    log = open(DATA / "autofill.log", "a")
-    subprocess.Popen([sys.executable, "-m", "backend.autofill", job_id], cwd=ROOT, stdout=log, stderr=log)
-    return {"started": True, "title": j.title, "company": j.company}
+# --- resume tailoring (up to 10 jobs) ----------------------------------------------
 
-
-@app.get("/ext/context")
-def ext_context(url: str, company: str = "", title: str = ""):
-    """What the Chrome extension needs to fill the application on `url`."""
-    return extension.context(url, company, title)
-
-
-class ExtResult(BaseModel):
-    url: str
-    status: str = "filled"  # filled | opened | applied
-    filled: int = 0
-    missing: list[str] = []
+class TailorAdd(BaseModel):
     job_id: str | None = None
     company: str = ""
     title: str = ""
+    url: str = ""
+    jd_text: str = ""
 
 
-@app.post("/ext/result")
-def ext_result(body: ExtResult):
-    if body.status not in ("filled", "opened", "applied"):
-        raise HTTPException(422, "status must be filled, opened or applied")
-    return extension.record(body.url, body.status, body.filled, body.missing, body.job_id, body.company, body.title)
+class TailorPaste(BaseModel):
+    text: str
 
 
-@app.get("/ext/runs")
-def ext_runs():
-    return extension.runs
+class TailorDecision(BaseModel):
+    status: str
+    text: str | None = None
+
+
+class TailorUpdate(BaseModel):
+    lane: str = ""
+
+
+def _tailor(fn):
+    try:
+        return fn()
+    except KeyError:
+        raise HTTPException(404, "not in your tailoring list")
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+
+
+@app.get("/tailor")
+def tailor_list():
+    out = []
+    for t in tailor.items():
+        try:
+            r = tailor.report(t.id)
+        except Exception as e:  # one broken description shouldn't hide the rest
+            out.append({"id": t.id, "title": t.title, "company": t.company, "error": str(e)})
+            continue
+        sug = r["data"].get("suggestions", [])
+        out.append({"id": t.id, "title": t.title, "company": t.company, "url": t.url, "job_id": t.job_id, "lane": r["lane"],
+                    "baseline": r["baseline"], "score": r["now"]["score"],
+                    "with_accepted": r["with_accepted"]["score"] if r["with_accepted"] else None,
+                    "with_all": r["with_all"]["score"] if r["with_all"] else None,
+                    "suggestions": len(sug), "accepted": sum(x["status"] == "accepted" for x in sug)})
+    return {"items": out, "max": tailor.MAX_ITEMS}
+
+
+@app.post("/tailor")
+def tailor_add(body: TailorAdd):
+    return _tailor(lambda: {"id": tailor.add(body.job_id, body.company, body.title, body.jd_text, body.url)})
+
+
+@app.get("/tailor/{item_id}")
+def tailor_report(item_id: str):
+    return _tailor(lambda: tailor.report(item_id))
+
+
+@app.get("/tailor/{item_id}/prompt")
+def tailor_prompt(item_id: str):
+    return _tailor(lambda: {"prompt": tailor.prompt(item_id)})
+
+
+@app.post("/tailor/{item_id}/suggestions")
+def tailor_import(item_id: str, body: TailorPaste):
+    return _tailor(lambda: tailor.import_suggestions(item_id, body.text))
+
+
+@app.put("/tailor/{item_id}/suggestions/{sug_id}")
+def tailor_decide(item_id: str, sug_id: str, body: TailorDecision):
+    return _tailor(lambda: tailor.decide(item_id, sug_id, body.status, body.text))
+
+
+@app.put("/tailor/{item_id}")
+def tailor_update(item_id: str, body: TailorUpdate):
+    def go():
+        t = tailor.get(item_id)
+        if not t:
+            raise KeyError(item_id)
+        t.lane = body.lane
+        tailor.save(t)
+        return tailor.report(item_id)
+    return _tailor(go)
+
+
+@app.delete("/tailor/{item_id}")
+def tailor_remove(item_id: str):
+    tailor.remove(item_id)
+    return {"removed": item_id}
+
+
+@app.get("/tailor/{item_id}/export")
+def tailor_export(item_id: str):
+    return Response(_tailor(lambda: tailor.export(item_id)), media_type="text/plain; charset=utf-8")
 
 
 class GmailConnect(BaseModel):

@@ -124,7 +124,7 @@ const setk = (k, v) => { const p = k.split('.'); p.slice(0, -1).reduce((o, x) =>
 const isUnseen = j => new Date(j.first_seen) > lastVisit;
 
 // ---------- router ----------
-const PAGES = { home: renderHome, jobs: renderJobsPage, tracker: renderTracker, inbox: renderInbox, resumes: renderResumes, profile: renderProfile, settings: renderSettings };
+const PAGES = { home: renderHome, jobs: renderJobsPage, tracker: renderTracker, inbox: renderInbox, resumes: renderResumes, tailor: renderTailor, settings: renderSettings };
 function go(page) {
   page = PAGES[page] ? page : 'home';
   for (const p in PAGES) $(`#page-${p}`).classList.toggle('hidden', p !== page);
@@ -203,9 +203,6 @@ async function renderHome() {
     </div>`;
   bindRows($('#page-home'));
 }
-// forms the JobPrep Chrome extension fills (extension/manifest.json content_scripts)
-const autofillReady = url => /(^|\.)greenhouse\.io$|^jobs\.lever\.co$|^jobs\.ashbyhq\.com$|^apply\.workable\.com$|myworkday(jobs|site)?\.com$/
-  .test((() => { try { return new URL(url).hostname; } catch (e) { return ''; } })());
 const kpi = (v, l) => `<div class="card kpi"><div class="v">${v}</div><div class="l">${l}</div></div>`;
 function sourceList(st) {
   return [['morning', 'Morning run (everything)'], ['simplify', 'SimplifyJobs internship list'], ['ats', 'Company job boards'], ['gmail', 'Gmail scan'], ['digest', 'Morning digest'], ['maintenance', 'Cleanup & backup']]
@@ -364,8 +361,7 @@ function renderDetail(j, full) {
       <div class="small mut">Posted ${ago(j.posted_at)} (${day(j.posted_at)}) · via ${esc(SRC[j.source] || j.source)}${j.also?.length ? ` · also on ${j.also.map(a => esc(SRC[a.source] || a.source)).join(', ')}` : ''}</div>
       <div class="actions">
         <button class="btn primary" data-act="apply" title="Opens the posting; Simplify can fill it. Shortcut: a">Apply ↗</button>
-        ${autofillReady(j.url) ? '<span class="tag ok" title="Open the posting with Apply ↗ and click the JobPrep button on the form (Chrome extension)">⚡ Autofill ready</span>'
-          : '<span class="tag" title="Not a form the JobPrep extension knows yet — use Simplify or fill it by hand">Manual / Simplify</span>'}
+        <button class="btn" data-act="tailor" title="Compare this job with your resume and get bullet suggestions">✎ Tailor resume</button>
         <button class="btn" data-act="saved">☆ Save</button>
         <button class="btn" data-act="applied">✓ Mark applied</button>
         <button class="btn danger" data-act="dismissed" title="Hide it and teach the ranking. Shortcut: x">✕ Not interested</button>
@@ -394,10 +390,10 @@ function renderDetail(j, full) {
       ${j.warnings?.length ? `<span>Heads-up</span><span>${j.warnings.map(w => `<span class="tag warn">${esc(w)}</span>`).join(' ')}</span>` : ''}
     </div></div></div>
 
-    <div class="card"><div class="hd"><h3>Resume help</h3><button class="btn sm" data-act="prompt" title="Copies a prompt you can paste into Claude — nothing is sent automatically">Copy Claude prompt</button></div>
-      <div class="bd" id="resumeHelp"><span class="spin"></span> <span class="small mut">Comparing with your resumes…</span></div></div>
-
-    <div class="card"><div class="hd"><h3>Application packet</h3><span class="small mut">click any value to copy</span></div><div class="bd" id="packet"><span class="spin"></span></div></div>
+    <div class="card"><div class="hd"><h3>Resume match</h3><button class="btn sm primary" data-act="tailor">✎ Tailor resume</button></div><div class="bd small">
+      Best resume: <b>${esc(laneLabel(j.best_lane))}</b> · skills it asks for that you show: ${(j.skills_matched || []).map(x => `<span class="tag ok">${esc(x)}</span>`).join(' ') || '<span class="mut">none detected</span>'}
+      ${(j.skills_missing || []).length ? `<br>Missing: ${j.skills_missing.slice(0, 10).map(x => `<span class="tag bad">${esc(x)}</span>`).join(' ')}` : ''}
+      <p class="mut" style="margin:8px 0 0">“Tailor resume” compares every keyword and requirement with your resume, scores the match, and builds a prompt for Claude to suggest bullets you can review.</p></div></div>
 
     <div class="card"><div class="hd"><h3>Description</h3>${full?.description ? '<button class="btn sm ghost" id="moreDesc">Show all</button>' : ''}</div><div class="bd">
       ${full ? (full.description ? `<div class="desc" id="desc">${esc(full.description)}</div>` : '<p class="mut small" style="margin:0">Only the title is known so far — the description is fetched automatically when the source allows it. Open the posting to read it.</p>') : '<span class="spin"></span>'}
@@ -405,37 +401,14 @@ function renderDetail(j, full) {
     </div></div>`;
   $$('#detail [data-act]').forEach(b => b.onclick = () => act(b.dataset.act, j, b));
   if ($('#moreDesc')) $('#moreDesc').onclick = () => { $('#desc').classList.toggle('open'); $('#moreDesc').textContent = $('#desc').classList.contains('open') ? 'Show less' : 'Show all'; };
-  if (full) { loadResumeHelp(j.id); loadPacket(j.id); }
-}
-const helpCache = {};
-async function loadResumeHelp(id) {
-  const h = helpCache[id] || (helpCache[id] = await api(`/jobs/${enc(id)}/resume-help`));
-  if (selected !== id || !$('#resumeHelp')) return;
-  const lanes = Object.entries(h.lane_similarity);
-  $('#resumeHelp').innerHTML = `
-    <p class="small" style="margin:0 0 8px">Send your <b>${esc(laneLabel(h.lane))}</b> resume
-      <span class="mut">(${lanes.map(([k, v]) => `${esc(laneLabel(k))} ${Math.round(v * 100)}%`).join(' vs ')})</span> · <a href="/resume/${enc(h.lane)}" target="_blank">open file</a> · <a href="#resumes">update it</a></p>
-    <h4>Lead with these bullets</h4>
-    <ol class="bullets small">${h.bullets.map(b => `<li>${esc(b.text)} <span class="faint">(${Math.round(b.similarity * 100)}%)</span></li>`).join('')}</ol>
-    <h4 style="margin-top:10px">Skills</h4>
-    <div class="tags" style="margin-top:4px">${h.matched.map(s => `<span class="tag ok">✓ ${esc(s)}</span>`).join('')}
-      ${h.missing_but_on_other_resume.map(s => `<span class="tag ac" title="It's on your other resume — add it to this one">+ ${esc(s)} (on other resume)</span>`).join('')}
-      ${h.missing.map(s => `<span class="tag bad" title="The posting asks for it; it's on neither resume">✗ ${esc(s)}</span>`).join('')}
-      ${!h.matched.length && !h.missing.length && !h.missing_but_on_other_resume.length ? '<span class="small mut">No dictionary skills found in this posting.</span>' : ''}</div>`;
-  $('#detail [data-act="prompt"]').onclick = () => copyText(h.prompt, 'Prompt copied — paste it into Claude');
-}
-async function loadPacket(id) {
-  const p = await api(`/jobs/${enc(id)}/packet`);
-  if (selected !== id || !$('#packet')) return;
-  const cv = v => `<span class="copy" data-copy="${esc(v)}">${esc(v)}</span>`;
-  $('#packet').innerHTML = `${p.worked_here ? '<p class="small ok" style="margin:0 0 8px">You have worked at this company — answer “Yes” to former-employee questions.</p>' : ''}
-    <table class="t"><tbody>${p.fields.map(f => `<tr><td class="k">${esc(f.label)}</td><td>${cv(f.value)}</td></tr>`).join('')}</tbody></table>
-    <h4 style="margin:12px 0 4px">Common questions</h4>
-    <table class="t"><tbody>${p.answers.map(a => `<tr><td class="k">${esc(a.question)}</td><td>${cv(a.answer)}${a.note ? `<div class="tiny faint">${esc(a.note)}</div>` : ''}</td></tr>`).join('')}</tbody></table>
-    <p class="tiny faint" style="margin:8px 0 0">Edit these on the Profile page.</p>`;
 }
 async function setStatus(id, status, extra = {}) { await put(`/applications/${enc(id)}`, { status, ...extra }); }
 async function act(what, j, btn) {
+  if (what === 'tailor') {
+    try { const r = await post('/tailor', { job_id: j.id }); tailorSel = r.id; go('tailor'); }
+    catch (e) { toast(e.message); }
+    return;
+  }
   if (what === 'apply') { window.open(j.url, '_blank', 'noopener'); await setStatus(j.id, 'opened', { source: 'apply_prompt' }); pending = j; return; }
   if (['saved', 'applied', 'dismissed'].includes(what)) {
     await setStatus(j.id, what);
@@ -599,7 +572,7 @@ async function upload(url, method, fields) {
 async function resumeChange(promise, msg) {
   const btns = $$('#page-resumes button'); btns.forEach(b => b.disabled = true);
   toast('Re-ranking every job with your resume…');
-  try { const r = await promise; lastImpact = r.impact; detailCache = {}; Object.keys(helpCache).forEach(k => delete helpCache[k]); await loadSettings(); toast(msg); }
+  try { const r = await promise; lastImpact = r.impact; detailCache = {}; await loadSettings(); toast(msg); }
   catch (e) { toast(e.message); }
   renderResumes();
 }
@@ -662,45 +635,130 @@ function resumeCard(r) {
     </div></div>`;
 }
 
-// ---------- PROFILE ----------
-const PROFILE_SECTIONS = [
-  ['Contact', [['first_name', 'First name'], ['last_name', 'Last name'], ['preferred_name', 'Preferred name'], ['email', 'Email'], ['phone', 'Phone'], ['location', 'Location (City, ST)']]],
-  ['Links', [['linkedin', 'LinkedIn URL'], ['github', 'GitHub URL'], ['website', 'Website / portfolio']]],
-  ['Graduate program (current)', [['school', 'School', 'wide'], ['degree', 'Degree'], ['major', 'Major / field of study', 'wide'], ['gpa', 'GPA'],
-    ['start', 'Started (e.g. August 2026)'], ['graduation', 'Expected graduation (e.g. May 2028)']], 'Forms asking for “School” or “Current education” use this one.'],
-  ['Undergraduate', [['undergrad_school', 'School', 'wide'], ['undergrad_degree', 'Degree'], ['undergrad_major', 'Major / minor', 'wide'], ['undergrad_gpa', 'GPA'],
-    ['undergrad_start', 'Started'], ['undergrad_graduation', 'Graduated']]],
-  ['Work authorization & availability', [['work_authorization', 'How to describe your status', 'wide'], ['availability', 'Availability']]],
-];
-async function renderProfile() {
-  const p = await api('/profile');
-  const missing = ['graduation', 'location', 'school', 'linkedin'].filter(k => !p[k]);
-  $('#page-profile').innerHTML = `
-    <div class="page-head"><div><h1>Profile</h1><p>Used by the packet, Autofill and Simplify-style copying. Stored only in <code>data/profile.yaml</code> on this Mac.</p></div>
-      <div class="row"><span id="pMsg" class="small mut"></span><button class="btn primary" id="pSave">Save profile</button></div></div>
-    ${missing.length ? `<div class="card" style="margin-bottom:16px"><div class="bd small"><b class="warn">Still empty:</b> ${missing.map(k => esc(k.replace('_', ' '))).join(', ')} — Autofill will leave these for you.</div></div>` : ''}
-    <div class="stack">
-      ${PROFILE_SECTIONS.map(([t, fs, note]) => `<div class="card"><div class="hd"><h2>${t}</h2>${note ? `<span class="small mut">${note}</span>` : ''}</div><div class="bd form-grid">
-        ${fs.map(([k, l, w]) => `<label class="field ${w || ''}"><span>${l}</span><input type="text" data-p="${k}" value="${esc(p[k])}"></label>`).join('')}</div></div>`).join('')}
-      <div class="card"><div class="hd"><h2>Companies you’ve worked at</h2><span class="small mut">“Have you worked here before?” becomes Yes for these</span></div>
-        <div class="bd"><input type="text" data-p="worked_at" value="${esc(p.worked_at.join(', '))}" placeholder="e.g. F5, F5 Networks"></div></div>
-      <div class="card"><div class="hd"><h2>Canned answers</h2><button class="btn sm" id="addAns">+ Add answer</button></div><div class="bd">
-        <p class="small mut" style="margin:0 0 8px">“Matches” are phrases that identify the question on a form (Autofill uses them). <code>{company}</code> becomes the employer’s name.</p>
-        <table class="t"><thead><tr><th style="width:36%">Question</th><th style="width:20%">Answer</th><th>Matches (comma separated)</th><th></th></tr></thead><tbody>
-        ${p.answers.map((a, i) => `<tr><td><input type="text" data-a="${i}" data-ak="question" value="${esc(a.question)}">${a.note ? `<div class="tiny faint" style="margin-top:3px">${esc(a.note)}</div>` : ''}</td>
-          <td><input type="text" data-a="${i}" data-ak="answer" value="${esc(a.answer)}"></td>
-          <td><input type="text" data-a="${i}" data-ak="patterns" value="${esc(a.patterns.join(', '))}"></td>
-          <td><button class="btn sm ghost" data-rm="${i}" title="Remove">✕</button></td></tr>`).join('')}</tbody></table></div></div>
+// ---------- TAILOR ----------
+let tailorSel = null, kwFilter = 'missing';
+const PART_LABEL = { hard_skills: 'Hard skills (keywords)', requirements: 'Requirements backed by a bullet', title: 'Job title',
+  education: 'Education', soft_skills: 'Soft skills' };
+const STATUS_TAG = { met: ['ok', '✓ met'], partial: ['warn', '◐ partial'], missing: ['bad', '✗ missing'] };
+const meter = (v, target = 90) => `<div class="meter"><i style="width:${Math.min(v, 100)}%" class="${v >= target ? 'ok' : v >= 70 ? 'mid' : ''}"></i><b style="left:${target}%"></b></div>`;
+
+async function renderTailor() {
+  const { items, max } = await api('/tailor');
+  if (!items.find(i => i.id === tailorSel)) tailorSel = items[0]?.id || null;
+  $('#page-tailor').innerHTML = `
+    <div class="page-head"><div><h1>Tailor your resume</h1>
+      <p>Compare each job’s keywords, requirements and title with your resume, get bullet suggestions from Claude, and keep the ones you like. Target: 90%+ — with true statements only.</p></div>
+      <span class="tag ${items.length >= max ? 'warn' : ''}">${items.length} / ${max} jobs</span></div>
+    <div class="tailor">
+      <div class="stack">
+        ${items.map(i => `<div class="card titem ${i.id === tailorSel ? 'sel' : ''}" data-tsel="${esc(i.id)}"><div class="bd">
+          <button class="btn sm ghost tdel" data-tdel="${esc(i.id)}" title="Remove from tailoring">✕</button><b class="ttl">${esc(i.title)}</b>
+          <div class="small mut">${esc(i.company)}</div>
+          ${i.error ? `<p class="small bad">${esc(i.error)}</p>` : `<div class="row small" style="margin-top:6px"><span>Now <b>${Math.round(i.score)}%</b></span>
+            ${i.with_accepted != null ? `<span>→ with accepted <b class="ok">${Math.round(i.with_accepted)}%</b></span>` : ''}</div>
+          ${meter(i.with_accepted ?? i.score)}
+          <div class="tiny faint">${i.suggestions ? `${i.accepted}/${i.suggestions} suggestions accepted` : 'no suggestions yet'}</div>`}</div></div>`).join('')}
+        <div class="card"><div class="hd"><h3>Add a job</h3></div><div class="bd small">
+          <p style="margin:0 0 8px" class="mut">From the Jobs page use <b>✎ Tailor resume</b>, or paste any job description here.</p>
+          <form id="tpaste" class="stack">
+            <input type="text" name="company" placeholder="Company" required><input type="text" name="title" placeholder="Job title" required>
+            <input type="text" name="url" placeholder="Posting link (optional)">
+            <textarea name="jd" rows="6" placeholder="Paste the full job description (responsibilities + qualifications)" required style="width:100%"></textarea>
+            <button class="btn primary" ${items.length >= max ? 'disabled' : ''}>Add &amp; analyze</button></form></div></div>
+      </div>
+      <div id="tdetail">${tailorSel ? '<div class="card"><div class="empty"><span class="spin"></span> Analyzing…</div></div>' : '<div class="card"><div class="empty">Add a job to start tailoring.</div></div>'}</div>
     </div>`;
-  const collect = () => {
-    const out = { ...p };
-    $$('[data-p]').forEach(el => out[el.dataset.p] = el.dataset.p === 'worked_at' ? el.value.split(',').map(x => x.trim()).filter(Boolean) : el.value);
-    out.answers = p.answers.map((a, i) => ({ ...a, ...Object.fromEntries($$(`[data-a="${i}"]`).map(el => [el.dataset.ak, el.dataset.ak === 'patterns' ? el.value.split(',').map(x => x.trim().toLowerCase()).filter(Boolean) : el.value])) }));
-    return out;
-  };
-  $('#pSave').onclick = async () => { try { await put('/profile', collect()); toast('Profile saved'); renderProfile(); } catch (e) { $('#pMsg').textContent = e.message; } };
-  $('#addAns').onclick = async () => { const q2 = collect(); q2.answers.push({ question: 'New question', answer: '', patterns: [], note: '' }); await put('/profile', q2); renderProfile(); };
-  $$('[data-rm]').forEach(b => b.onclick = async () => { const q2 = collect(); q2.answers.splice(Number(b.dataset.rm), 1); await put('/profile', q2); renderProfile(); });
+  $$('[data-tsel]').forEach(c => c.onclick = e => { if (e.target.closest('[data-tdel]')) return; tailorSel = c.dataset.tsel; renderTailor(); });
+  $$('[data-tdel]').forEach(b => b.onclick = async () => { if (!confirm('Remove this job from tailoring? Its suggestions are deleted.')) return; await del(`/tailor/${enc(b.dataset.tdel)}`); renderTailor(); });
+  $('#tpaste').onsubmit = async e => { e.preventDefault(); const f = e.target;
+    try { const r = await post('/tailor', { company: f.company.value, title: f.title.value, url: f.url.value, jd_text: f.jd.value }); tailorSel = r.id; renderTailor(); }
+    catch (err) { toast(err.message); } };
+  if (tailorSel) renderTailorDetail(await api(`/tailor/${enc(tailorSel)}`));
+}
+
+function renderTailorDetail(r) {
+  const a = r.now, acc = r.with_accepted, all = r.with_all, d = r.data || {}, sug = d.suggestions || [];
+  const kws = a.keywords.filter(k => kwFilter === 'all' || (kwFilter === 'missing' ? !k.in_resume : k.in_resume));
+  const reqs = a.requirements;
+  const nReq = s => reqs.filter(q => q.status === s).length;
+  $('#tdetail').innerHTML = `
+    <div class="card"><div class="bd">
+      <div class="row between"><div><div class="small mut">${esc(r.job.company)}</div><div class="title">${esc(r.job.title)}</div>
+        ${r.job.url ? `<a class="small" href="${esc(r.job.url)}" target="_blank" rel="noopener">Open posting ↗</a>` : ''}</div>
+        <label class="field" style="min-width:180px"><span>Resume</span><select id="tlane">${r.lanes.map(l => `<option value="${esc(l)}" ${l === r.lane ? 'selected' : ''}>${esc(r.lane_labels[l] || l)}</option>`).join('')}</select></label></div>
+      <div class="scores">
+        <div><div class="big">${Math.round(a.score)}%</div><div class="small mut">match now</div></div>
+        ${acc ? `<div><div class="big ok">${Math.round(acc.score)}%</div><div class="small mut">with accepted bullets</div></div>` : ''}
+        ${all && (!acc || all.score !== acc.score) ? `<div><div class="big mid">${Math.round(all.score)}%</div><div class="small mut">if you accept the rest</div></div>` : ''}
+        <div><div class="big faint">90%</div><div class="small mut">target</div></div></div>
+      ${meter(acc ? acc.score : a.score)}
+      <div class="parts">${Object.entries(a.parts).map(([k, v]) => `<div><div class="row between small"><span>${PART_LABEL[k]}</span><b>${v}%${acc && acc.parts[k] !== v ? ` → <span class="ok">${acc.parts[k]}%</span>` : ''}</b></div>${meter(acc ? acc.parts[k] : v, 101)}</div>`).join('')}</div>
+      <p class="tiny faint" style="margin:8px 0 0">Weights follow ATS practice: hard skills 40% · requirements 25% · title 15% · education 10% · soft skills 10%. Sections found in the posting: ${esc(r.sections_found.join(', ') || 'none — scored on the whole text')}.</p>
+    </div></div>
+
+    <div class="card"><div class="hd"><h3>1 · Keywords</h3><div class="seg">${['missing', 'present', 'all'].map(f => `<button data-kf="${f}" class="${kwFilter === f ? 'on' : ''}">${f === 'missing' ? `Missing (${a.keywords.filter(k => !k.in_resume).length})` : f === 'present' ? `In resume (${a.keywords.filter(k => k.in_resume).length})` : 'All'}</button>`).join('')}</div></div>
+      <div class="bd"><div class="tags">${kws.map(k => `<span class="tag ${k.in_resume ? 'ok' : k.on_other_resume ? 'ac' : 'bad'}" title="appears ${k.count}× in ${k.where.join(', ')} · weight ${k.weight}">${k.in_resume ? '✓' : '✗'} ${esc(k.term)}${k.weight >= 3 ? ' ★' : ''}${k.on_other_resume ? ' (on other resume)' : ''}</span>`).join('') || '<span class="small mut">none</span>'}</div>
+      <p class="tiny faint" style="margin:8px 0 0">★ = used often or in required qualifications (counts more). Only add a keyword if it’s true for you.</p>
+      <p class="small" style="margin:8px 0 0">Title words: ${a.title.hits.map(t => `<span class="tag ok">${esc(t)}</span>`).join(' ')}${a.title.missing.map(t => `<span class="tag bad">${esc(t)}</span>`).join(' ')}
+        · Soft skills: ${a.soft_skills.map(s => `<span class="tag ${s.in_resume ? 'ok' : 'bad'}">${esc(s.skill)}</span>`).join(' ') || '<span class="mut">none asked</span>'}
+        · Education: ${a.education.level ? esc(a.education.level) : 'not specified'}${a.education.fields.length ? ` in ${esc(a.education.fields.slice(0, 3).join(' / '))}` : ''} <b class="${a.education.score >= 100 ? 'ok' : 'warn'}">${a.education.score}%</b></p></div></div>
+
+    <div class="card"><div class="hd"><h3>2 · Requirements</h3><span class="small mut">${nReq('met')} met · ${nReq('partial')} partial · ${nReq('missing')} missing</span></div>
+      <div class="bd"><table class="t"><tbody>${reqs.map(q => `<tr><td style="width:96px"><span class="tag ${STATUS_TAG[q.status][0]}">${STATUS_TAG[q.status][1]}</span><div class="tiny faint">${esc(q.where)}</div></td>
+        <td>${esc(q.text)}${q.kind === 'bullet' ? `<div class="tiny mut" style="margin-top:3px">closest: <b>${esc(q.evidence.id)}</b> ${esc(q.evidence.text.slice(0, 140))}${q.evidence.text.length > 140 ? '…' : ''} (${Math.round(q.similarity * 100)}%)</div>` : `<div class="tiny mut">checked against your ${{ soft: 'soft skills', years: 'experience', education: 'education' }[q.kind] || esc(q.kind)}</div>`}
+        ${q.missing_terms.length ? `<div class="tiny bad">missing: ${q.missing_terms.map(esc).join(', ')}</div>` : ''}</td></tr>`).join('')}</tbody></table></div></div>
+
+    <div class="card"><div class="hd"><h3>3 · Get bullet suggestions from Claude</h3></div><div class="bd small">
+      <ol class="steps" style="margin-top:0"><li><button class="btn sm primary" id="tprompt">Copy prompt</button> — it contains this analysis, your bullets (with ids like E1.2) and strict “truth only” rules.</li>
+        <li>Paste it into Claude (claude.ai, your plan) and send.</li>
+        <li>Copy Claude’s whole JSON reply and paste it below. <span class="mut">Or run <code>/tailor-resume</code> in Claude Code to do steps 1–3 for every job.</span></li></ol>
+      <textarea id="treply" rows="5" style="width:100%" placeholder='Paste Claude’s reply here — {"suggestions": [...]}'></textarea>
+      <div class="row" style="margin-top:6px"><button class="btn primary" id="timport">Import &amp; re-score</button>${sug.length ? `<span class="mut">Importing again replaces the current ${sug.length} suggestions.</span>` : ''}</div></div></div>
+
+    ${sug.length || d.summary || (d.skills_to_add || []).length ? `<div class="card"><div class="hd"><h3>4 · Review suggestions</h3><span class="small mut">${sug.filter(x => x.status === 'accepted').length} accepted · ${sug.filter(x => x.status === 'rejected').length} rejected · ${sug.filter(x => x.status === 'pending').length} to review</span></div>
+      <div class="bd stack">${sug.map(x => `<div class="sug ${x.status}">
+        <div class="row between"><span class="small"><b>${x.type === 'rewrite' ? `Rewrite ${esc(x.target)}` : `New bullet${x.target ? ` for ${esc(x.target)}` : ''}`}</b>${x.why ? ` · <span class="mut">${esc(x.why)}</span>` : ''}</span>
+          <span class="tag ${x.status === 'accepted' ? 'ok' : x.status === 'rejected' ? 'bad' : ''}">${x.status}</span></div>
+        ${x.original ? `<div class="del small">${esc(x.original)}</div>` : ''}
+        <div class="ins small" contenteditable="true" data-edit="${esc(x.id)}" title="Click to edit before accepting">${esc(x.text)}</div>
+        <div class="row" style="margin-top:6px">${x.adds.length ? `<span class="tiny">adds: ${x.adds.map(t => `<span class="tag ok">${esc(t)}</span>`).join(' ')}</span>` : '<span class="tiny faint">adds no missing keyword (may still strengthen a requirement)</span>'}
+          ${x.removes.length ? `<span class="tiny bad">removes: ${x.removes.map(esc).join(', ')} — keep them in the text if they’re still true</span>` : ''}
+          <span class="grow"></span><button class="btn sm primary" data-dec="accepted" data-sid="${esc(x.id)}">Accept</button><button class="btn sm" data-dec="rejected" data-sid="${esc(x.id)}">Reject</button>
+          ${x.status !== 'pending' ? `<button class="btn sm ghost" data-dec="pending" data-sid="${esc(x.id)}">Undo</button>` : ''}</div></div>`).join('')}
+        ${(d.skills_to_add || []).length ? `<div class="sug ${d.skills_status}"><div class="row between small"><b>Add to Skills</b><span class="tag">${d.skills_status}</span></div>
+          <div class="small">${d.skills_to_add.map(esc).join(', ')}</div><div class="row" style="margin-top:6px"><span class="grow"></span><button class="btn sm primary" data-dec="accepted" data-sid="skills">Accept</button><button class="btn sm" data-dec="rejected" data-sid="skills">Reject</button></div></div>` : ''}
+        ${d.summary ? `<div class="sug ${d.summary_status}"><div class="row between small"><b>Summary</b><span class="tag">${d.summary_status}</span></div>
+          <div class="small">${esc(d.summary)}</div><div class="row" style="margin-top:6px"><span class="grow"></span><button class="btn sm primary" data-dec="accepted" data-sid="summary">Accept</button><button class="btn sm" data-dec="rejected" data-sid="summary">Reject</button></div></div>` : ''}
+        ${(d.gaps || []).length ? `<div class="small"><b>Gaps Claude says you can’t honestly claim:</b> ${d.gaps.map(g => `<span class="tag warn">${esc(g)}</span>`).join(' ')}</div>` : ''}
+      </div></div>
+
+    <div class="card"><div class="hd"><h3>5 · Copy into your resume</h3><button class="btn sm primary" id="texport">Copy accepted changes</button></div>
+      <div class="bd small mut">Copies plain text grouped by job/project (“REPLACE … WITH …”, “ADD …”). Edit your resume yourself — JobPrep never creates resume files. After updating it, upload the new version on the Resumes page to re-score every job.</div></div>` : ''}`;
+
+  $('#tlane').onchange = async e => renderTailorDetail(await put(`/tailor/${enc(r.id)}`, { lane: e.target.value }));
+  $$('[data-kf]').forEach(b => b.onclick = () => { kwFilter = b.dataset.kf; renderTailorDetail(r); });
+  $('#tprompt').onclick = async () => { const p = await api(`/tailor/${enc(r.id)}/prompt`); copyText(p.prompt, 'Prompt copied — paste it into Claude'); };
+  $('#timport').onclick = async () => {
+    try { renderTailorDetail(await post(`/tailor/${enc(r.id)}/suggestions`, { text: $('#treply').value })); toast('Imported — review each suggestion'); refreshTailorList(); }
+    catch (e) { toast(e.message); } };
+  $$('[data-dec]').forEach(b => b.onclick = async () => {
+    const box = $(`[data-edit="${CSS.escape(b.dataset.sid)}"]`);
+    const text = box ? box.innerText.trim() : null;
+    renderTailorDetail(await put(`/tailor/${enc(r.id)}/suggestions/${enc(b.dataset.sid)}`, { status: b.dataset.dec, text }));
+    refreshTailorList();
+  });
+  if ($('#texport')) $('#texport').onclick = async () => copyText(await api(`/tailor/${enc(r.id)}/export`), 'Accepted changes copied as text');
+}
+async function refreshTailorList() {  // update the left column's scores without re-rendering the detail
+  const { items } = await api('/tailor');
+  for (const i of items) {
+    const card = $(`[data-tsel="${CSS.escape(i.id)}"]`); if (!card || i.error) continue;
+    const v = i.with_accepted ?? i.score;
+    card.querySelector('.meter i').style.width = `${Math.min(v, 100)}%`;
+    card.querySelector('.tiny').textContent = i.suggestions ? `${i.accepted}/${i.suggestions} suggestions accepted` : 'no suggestions yet';
+    const row = card.querySelector('.row.small');
+    if (row) row.innerHTML = `<span>Now <b>${Math.round(i.score)}%</b></span>${i.with_accepted != null ? `<span>→ with accepted <b class="ok">${Math.round(i.with_accepted)}%</b></span>` : ''}`;
+  }
 }
 
 // ---------- SETTINGS ----------
@@ -713,12 +771,6 @@ async function renderSettings() {
       ${SETTINGS_GROUPS.map(([t, d, fs]) => `<div class="card"><div class="hd"><h2>${t}</h2></div><div class="bd"><p class="small mut" style="margin:0 0 6px">${d}</p>${fs.map(fieldHtml).join('')}
         ${t === 'Maintenance' ? `<div class="row" style="margin-top:10px"><button class="btn sm" id="backupNow">Back up now</button>
           <span class="small mut">${st.maintenance ? `last cleanup ${ago(st.maintenance.last_run)}${st.maintenance.pruned != null ? ` · removed ${st.maintenance.pruned} old postings` : ''}` : ''}</span></div>` : ''}</div></div>`).join('')}
-      <div class="card"><div class="hd"><h2>Browser extension (Autofill)</h2></div><div class="bd small" id="extCard">
-        <p style="margin:0">Fills applications inside your own Chrome — Greenhouse, Lever, Ashby, Workable and Workday — from your Profile. Never submits.</p>
-        <ol class="steps"><li>Open <code class="copy" data-copy="chrome://extensions">chrome://extensions</code> and turn on <b>Developer mode</b> (top right).</li>
-          <li>Click <b>Load unpacked</b> and choose the <code>extension</code> folder inside the JobPrep project.</li>
-          <li>Open a job with <b>Apply ↗</b>, then click the blue <b>J Autofill</b> button at the bottom-right of the form.</li></ol>
-        <div id="extRuns" class="mut">Checking recent activity…</div></div></div>
       <div class="card"><div class="hd"><h2>Run at login</h2></div><div class="bd small">
         <p style="margin:0">Keeps JobPrep running in the background so refreshes, alerts and the digest happen even when no terminal is open.</p>
         <ol class="steps"><li>Stop the server you started in Terminal (Ctrl-C).</li>
@@ -726,15 +778,12 @@ async function renderSettings() {
           <li>Open <a href="http://127.0.0.1:8000">127.0.0.1:8000</a> any time. Undo with <code>scripts/uninstall_service.sh</code>.</li></ol></div></div>
       <div class="card"><div class="hd"><h2>Data on this Mac</h2></div><div class="bd small"><div class="kv">
         <span>Jobs database</span><span><code>jobs.db</code> (postings, embeddings, tracker, emails)</span>
-        <span>Personal files</span><span><code>data/</code> — resumes, profile, settings, backups, model</span>
+        <span>Personal files</span><span><code>data/</code> — resumes, settings, backups, model</span>
         <span>Leaves the Mac</span><span>Only requests for public job listings, the pages you open, and Gmail reads if connected.</span></div></div></div>
     </div>`;
   bindFields($('#page-settings'), async () => { try { const mode = S.schedule; S = await put('/settings', S); toast('Saved'); if (mode !== st.schedule?.mode) renderSettings(); } catch (e) { toast(e.message); } });
   $('#page-settings .card .hd h2').insertAdjacentHTML('afterend', '<button class="btn sm" id="runMorning">Run morning routine now</button>');
   $('#runMorning').onclick = async () => { const r = await post('/refresh?source=morning'); toast(r.started ? 'Morning routine started — takes a few minutes' : 'Already running'); };
-  api('/ext/runs').then(runs => { $('#extRuns').innerHTML = runs.length
-    ? `<b>Recent fills:</b><br>${runs.slice(0, 5).map(r => `${ago(r.at)} · ${esc(r.company || new URL(r.url).hostname)} · ${r.status === 'applied' ? '<span class="ok">applied</span>' : `${r.filled} filled${r.missing.length ? `, ${r.missing.length} left` : ''}`}`).join('<br>')}`
-    : 'No fills yet — after you install it, they show up here.'; }).catch(() => {});
   if ($('#backupNow')) $('#backupNow').onclick = async () => { const r = await post('/maintenance/backup'); toast(`Backed up to ${r.path.split('/').slice(-2).join('/')}`); };
 }
 
