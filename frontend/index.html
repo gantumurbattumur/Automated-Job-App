@@ -30,8 +30,8 @@
   <main class="main" id="main">
     <section id="page-home"></section>
     <section id="page-jobs" class="hidden">
-      <div class="jobs">
-        <aside class="filters" id="filters"></aside>
+      <div class="quickbar" id="quickbar"></div>
+      <div class="jobs2">
         <div class="results">
           <div class="bar">
             <input type="text" id="q" placeholder="Search title, company, location…">
@@ -42,14 +42,16 @@
           </div>
           <div class="row between small mut" style="margin-bottom:6px">
             <span id="counts"></span>
-            <label class="check small"><input type="checkbox" id="showHidden"> show hidden &amp; why</label>
+            <label class="check small"><input type="checkbox" id="showHidden"> show hidden</label>
           </div>
           <div class="active-filters" id="activeFilters"></div>
           <div class="list" id="list" tabindex="0"></div>
-          <div class="tiny faint" style="margin-top:6px"><span class="kbd">j</span>/<span class="kbd">k</span> move ·
-            <span class="kbd">a</span> apply · <span class="kbd">s</span> save · <span class="kbd">x</span> not interested</div>
         </div>
         <div class="detail" id="detail"></div>
+      </div>
+      <div class="drawer hidden" id="drawer">
+        <div class="row between drawer-hd"><b>All filters</b><button class="btn sm ghost" id="drawerClose">✕ Close</button></div>
+        <aside class="filters" id="filters"></aside>
       </div>
     </section>
     <section id="page-tracker" class="hidden"></section>

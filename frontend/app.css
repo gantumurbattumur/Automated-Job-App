@@ -184,3 +184,29 @@ table.t tr:last-child td { border-bottom: 0; } table.t td.k { color: var(--mut);
 @media (max-width: 900px) { .tailor, .parts { grid-template-columns: 1fr; } }
 .titem .bd { position: relative; } .titem .tdel { position: absolute; top: 8px; right: 8px; } .titem .ttl { display: block; padding-right: 28px; }
 #tdetail .title { font-size: 18px; font-weight: 700; }
+
+/* ---------- v2 layout: quick filters, two-column jobs, drawer, tabs ---------- */
+.quickbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; background: var(--panel); border: 1px solid var(--bd);
+  border-radius: var(--r); padding: 10px 12px; margin-bottom: 12px; }
+.quickbar label.field { min-width: 130px; } .quickbar label.field > span { margin-bottom: 2px; }
+.quickbar select, .quickbar input { padding: 5px 8px; }
+.jobs2 { display: grid; grid-template-columns: minmax(340px, 1fr) minmax(420px, 1.3fr); gap: 14px; height: calc(100vh - 180px); }
+.jobs2 > * { min-height: 0; }
+.drawer { position: fixed; top: 0; right: 0; bottom: 0; width: 340px; background: var(--bg); border-left: 1px solid var(--bd);
+  box-shadow: -8px 0 30px rgba(0,0,0,.18); z-index: 40; padding: 12px; overflow: auto; }
+.drawer-hd { margin-bottom: 10px; } .drawer .filters { overflow: visible; padding: 0; }
+.glance { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.icon-btns { display: flex; gap: 4px; margin-left: auto; }
+.tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--bd); margin: 14px 0 0; }
+.tabs button { border: 0; background: none; padding: 8px 14px; cursor: pointer; color: var(--mut); border-bottom: 2px solid transparent; font-weight: 600; }
+.tabs button.on { color: var(--ac); border-bottom-color: var(--ac); }
+.hero { display: flex; justify-content: space-between; align-items: end; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+.hero h1 { font-size: 22px; } .hero p { margin: 4px 0 0; color: var(--mut); }
+.stats3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 14px; }
+.stats3 .card { padding: 12px 14px; cursor: pointer; } .stats3 .v { font-size: 22px; font-weight: 700; } .stats3 .l { font-size: 12px; color: var(--mut); }
+.home2 { display: grid; grid-template-columns: 1fr 320px; gap: 14px; align-items: start; }
+.match-row { display: grid; grid-template-columns: auto 1fr auto; gap: 12px; align-items: center; padding: 10px 14px; border-top: 1px solid var(--bd); }
+.match-row:first-child { border-top: 0; } .match-row .acts { display: flex; gap: 6px; }
+.steps-list .list-row { cursor: pointer; }
+@media (max-width: 1100px) { .jobs2, .home2 { grid-template-columns: 1fr; height: auto; } .list { max-height: 60vh; } }
+@media (max-width: 700px) { .stats3 { grid-template-columns: 1fr; } .match-row { grid-template-columns: auto 1fr; } .match-row .acts { grid-column: 1 / -1; } }

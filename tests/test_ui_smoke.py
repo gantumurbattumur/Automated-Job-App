@@ -76,7 +76,7 @@ def test_ui_end_to_end(server):
         page.on("console", lambda m: m.type == "error" and errors.append(m.text))
 
         page.goto(f"{server}/#home")
-        page.wait_for_selector("#page-home >> text=Today’s top matches", timeout=120000)
+        page.wait_for_selector("#page-home >> text=Browse all matches", timeout=120000)
 
         # Jobs: ranked list, detail with score breakdown, eligibility, resume match
         page.click("#nav [data-page=jobs]")
@@ -85,10 +85,10 @@ def test_ui_end_to_end(server):
         assert any("Machine Learning Intern" in t for t in titles)
         assert not any("Software Engineering Intern" in t for t in titles)  # citizenship required -> hidden
         page.locator("#list .job", has_text="Machine Learning Intern").click()
-        page.wait_for_selector("text=Why it ranks here")
-        page.wait_for_selector("#detail >> text=Resume match")
-        elig = page.locator("#detail .card", has_text="Eligibility for you").inner_text()
-        assert "CPT friendly" in elig and "Dec 1" in elig
+        page.wait_for_selector("#detail >> text=Why ")
+        page.wait_for_selector("#detail >> text=Tailor resume")
+        glance = page.inner_text("#detail .glance")
+        assert "CPT friendly" in glance and "Dec 1" in glance  # at-a-glance chips: CPT + deadline (shown as a date, not shifted a day)
 
         # show hidden explains why
         page.check("#showHidden")
@@ -96,19 +96,25 @@ def test_ui_end_to_end(server):
         assert "citizenship" in page.inner_text("#list")
         page.uncheck("#showHidden")
 
-        # a filter change persists and shows an active-filter chip
-        page.locator("#filters select[data-k=posted_within_days]").select_option("1")
-        page.wait_for_selector("#activeFilters .tag")
+        # quick filter bar persists; drawer filters show an "also filtering by" chip that resets
+        page.locator("[data-q=posted]").select_option("1")
         page.wait_for_timeout(1500)  # filter saves are debounced
         assert httpx.get(f"{server}/settings").json()["posted_within_days"] == 1
+        page.locator("[data-q=posted]").select_option("0")
+        page.click("#moreFilters")
+        page.locator("#filters input[data-k=hide_expired]").uncheck()
+        page.wait_for_selector("#activeFilters .tag")
         page.locator("#activeFilters [data-reset]").first.click()
-        page.wait_for_timeout(800)
+        page.wait_for_timeout(1500)
+        assert httpx.get(f"{server}/settings").json()["hide_expired"] is True
+        page.click("#drawerClose")
 
         # location radius: near LA within 500 mi keeps San Francisco (~347 mi), hides New York; bad city is refused
-        near = page.locator("#filters input[data-k=near_location]")
+        near = page.locator("[data-q=near]")
         near.fill("Los Angeles, CA")
         near.dispatch_event("change")
-        page.locator("#filters select[data-k=near_radius_miles]").select_option("500")
+        page.wait_for_selector("[data-q=radius]:not([disabled])")
+        page.locator("[data-q=radius]").select_option("500")
         page.wait_for_timeout(1500)
         page.wait_for_selector("#list .job >> text=mi")
         listing = page.inner_text("#list")
@@ -118,8 +124,8 @@ def test_ui_end_to_end(server):
         page.wait_for_selector("text=find “Qwertyvillezz”")
         page.wait_for_timeout(800)
         assert httpx.get(f"{server}/settings").json()["near_location"] == "Los Angeles, CA"
-        page.locator("#filters input[data-k=near_location]").fill("")
-        page.locator("#filters input[data-k=near_location]").dispatch_event("change")
+        page.locator("[data-q=near]").fill("")
+        page.locator("[data-q=near]").dispatch_event("change")
         page.wait_for_timeout(1500)
 
         # save -> tracker board card
@@ -144,6 +150,7 @@ def test_ui_end_to_end(server):
 
         # tailor: paste a job description -> analysis; import Claude's reply -> accept -> score goes up; export is text
         page.click("#nav [data-page=tailor]")
+        page.click("#tadd")
         page.wait_for_selector("#tpaste")
         jd = ("Responsibilities: Build machine learning pipelines in Python and PyTorch, and ship REST APIs with FastAPI. "
               "Minimum qualifications: Pursuing a degree in Computer Science. Experience with SQL and Docker. "
@@ -157,9 +164,10 @@ def test_ui_end_to_end(server):
         item = httpx.get(f"{server}/tailor").json()["items"][0]
         assert "truthful" in httpx.get(f"{server}/tailor/{item['id']}/prompt").json()["prompt"]
         reply = '{"suggestions": [{"type": "new", "target": "", "text": "Containerized PyTorch model services with Docker and Kubernetes for repeatable deploys.", "keywords": ["Kubernetes"], "why": "preferred"}], "skills_to_add": [], "summary": "", "gaps": ["Kafka"]}'
+        page.click("#tdetail .tabs [data-tab=suggest]")
         page.fill("#treply", reply)
         page.click("#timport")
-        page.wait_for_selector("#tdetail >> text=Review suggestions")
+        page.wait_for_selector("#tdetail >> text=Review (")
         page.click("#tdetail [data-dec=accepted]")
         page.wait_for_selector("#tdetail >> text=with accepted bullets")
         after = httpx.get(f"{server}/tailor").json()["items"][0]

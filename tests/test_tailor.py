@@ -135,3 +135,26 @@ def test_same_posting_from_two_sources_is_one_entry(db):  # noqa: F811
         s.commit()
     assert tailor.add("simplify:1") == "simplify:1" and tailor.add("workday:t:R1") == "simplify:1"
     assert len(tailor.items()) == 1
+
+
+def test_culture_lines_are_not_requirements_and_slash_titles():
+    jd = tailor.parse_jd("AI/ML Developer Intern", "We make bold moves, together. We know varied backgrounds are valued. "
+                         "Follow @Careers on Instagram #interns. Experience with Python and PyTorch for model training. "
+                         "Ability to communicate results to engineers.")
+    texts = [r["text"] for r in jd["requirements"]]
+    assert texts == ["Experience with Python and PyTorch for model training.", "Ability to communicate results to engineers."]
+    a = tailor.analyze(jd, tailor.parse_resume("SUMMARY\nAI engineer building ML systems."))
+    assert "ai/ml" in a["title"]["hits"]
+
+
+def test_run_together_lists_and_more_headers():
+    jd = tailor.parse_jd("AI/ML Developer Intern", "This role is Hybrid and you will work on average 2 days per week from an HPE office. "
+        "Responsibilities: Collaborate with teams to design ML solutions Design, implement, and validate machine learning algorithms on big data "
+        "Deploy AI/ML systems using CI/CD pipelines Education & Experience required: Working towards a Master's degree in Computer Science "
+        "Proficient Python coder (PySpark, Scikit-learn) Strong background in statistics and deep learning "
+        "What We Can Offer You: Health & Wellbeing benefits for your loved ones.")
+    texts = [r["text"] for r in jd["requirements"]]
+    assert len(texts) == 6 and any(t.startswith("Design, implement") for t in texts)
+    assert any(t.startswith("Proficient Python") for t in texts) and any(t.startswith("Working towards a Master") for t in texts)
+    assert not any("days per week" in t or "Wellbeing" in t for t in texts)
+    assert {"required", "responsibilities"} <= set(jd["sections_found"])

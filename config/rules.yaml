@@ -19,7 +19,9 @@ auth:
   clearance: ["security clearance", "secret clearance", "ts/sci", "clearance required", "active clearance"]
   export_control: ["itar", "u.s. person", "us person", "u.s. persons", "us persons"]
   no_future_sponsorship: ["will not sponsor", "unable to sponsor", "do not sponsor", "does not sponsor", "not able to sponsor",
-                          "no visa sponsorship", "sponsorship is not available", "now or in the future"]
+                          "no visa sponsorship", "sponsorship is not available", "now or in the future",
+                          "do not offer visa sponsorship", "does not offer visa sponsorship", "not offer sponsorship",
+                          "not able to offer sponsorship", "unable to provide sponsorship", "without the need for sponsorship"]
 # A citizenship / green-card / US-person mention near one of these phrases is soft (a warning, not hidden)
 auth_soft_context: ["may need", "may be required", "may require", "might require", "otherwise eligible", "export license",
                     "eligible to obtain", "employment-based immigrants", "if required", "for certain positions", "some positions"]

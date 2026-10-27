@@ -168,3 +168,8 @@ def test_index_busts_cached_scripts():
     r = TestClient(app).get("/")
     assert r.status_code == 200 and "/static/app.js?v=" in r.text and "/static/app.css?v=" in r.text
     assert r.headers["cache-control"] == "no-cache"
+
+
+def test_do_not_offer_visa_sponsorship_warns():
+    f = classify("Data Intern", "acme", "At this time, we do not offer visa sponsorship for this role.")
+    assert f.no_future_sponsorship and any("no sponsorship later" in w for w in f.warnings)

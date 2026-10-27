@@ -100,13 +100,14 @@ def resume_text(r: dict) -> str:
 # --- job description ----------------------------------------------------------
 
 JD_HEADERS = [
-    ("required", r"minimum qualifications|basic qualifications|required qualifications|requirements|what you(?:'|’)ll need|"
+    ("required", r"minimum qualifications|basic qualifications|required qualifications|education (?:&|and) experience(?: required)?|"
+                 r"skills (?:&|and) experience|what you(?:'|’)ll bring|what you bring|requirements|what you(?:'|’)ll need|"
                  r"what we(?:'|’)re looking for|who you are|you (?:have|bring|should have)|must[- ]haves?|qualifications"),
     ("preferred", r"preferred qualifications|preferred skills|nice[- ]to[- ]haves?|bonus points|pluses|it(?:'|’)s a plus|"
                   r"desired qualifications|additional qualifications"),
-    ("responsibilities", r"responsibilities|what you(?:'|’)ll do|what you will do|your role|the role|in this role|day[- ]to[- ]day|"
+    ("responsibilities", r"responsibilities|what you(?:'|’)ll do|what you will do|your role|the role|in this role|day[- ]to[- ]day|job description|"
                          r"you will|key duties|position overview"),
-    ("other", r"benefits|perks|compensation|pay range|salary|about us|about the company|equal opportunity|eeo|"
+    ("other", r"benefits|perks|compensation|pay range|salary|about us|about the company|equal opportunity|eeo|what we (?:can )?offer(?: you)?|"
               r"accommodations?|our vision|who we are"),
 ]
 @lru_cache
@@ -141,13 +142,29 @@ def _split_sections(text: str) -> dict[str, str]:
 BOILERPLATE = re.compile(r"equal opportunity|affirmative action|benefits|medical|dental|paid time off|pto\b|401\(?k|salary|pay range|"
                          r"compensation|fraud|recruitment fees|accommodation|e-verify|privacy|world leader|alert\b|"
                          r"discriminat|veteran status|sexual orientation|background check|visa|sponsorship|apply now|disqualif|"
-                         r"misrepresent|ai tools to enhance", re.I)
+                         r"misrepresent|ai tools to enhance|accessib|inclusive|committed to (creating|providing|diversity)|"
+                         r"if you believe you require|reasonable accommodation|knowledge expert in your field", re.I)
+
+
+# a requirement asks for a skill, experience or task; culture lines ("We make bold moves") don't
+REQUIREMENT_SIGNAL = re.compile(r"experience|knowledge|familiar|proficien|abilit|skill|degree|pursuing|enrolled|understand|"
+                                r"build|develop|design|implement|create|work (with|on)|using|strong|must|required|preferred|"
+                                r"plus|years|background in|expertise|hands-on|support|analy|collaborat|communicat|manage|"
+                                r"maintain|test|deploy|write|research|learn|model|data|software|code|program", re.I)
+CULTURE = re.compile(r"follow @|instagram|linkedin\.com|#\w+|we (know|value|make|believe|are proud|celebrate)|our culture|"
+                     r"flexibility to manage|life at|join us|why you(?:'|’)ll love|days (?:a|per) week|from an? [\w&]+ office", re.I)
+# list items run together without punctuation ("...optimization Design, implement..."): a new item starts with one of these
+ITEM_START = re.compile(r"(?<=[a-z0-9)%])\s+(?=(?:Collaborat|Work|Design|Guide|Use|Identif|Develop|Deploy|Contribut|Analy|Build|"
+                        r"Implement|Create|Familiar|Proficien|A basic|Strong|Great|Relevant|Experience|Knowledge|Abilit|Working|"
+                        r"Pursuing|Currently|Excellent|Understand|Demonstrat|Must|Prior|Comfortable|Hands-on|"
+                        r"Solid|Good|Partner|Own|Lead|Drive|Support|Maintain|Write|Test|Research|Explore|Communicat)\w*\b)")
 
 
 def _items(segment: str) -> list[str]:
-    """Requirement-sized pieces: bullets / sentences, skipping fragments and boilerplate."""
-    parts = re.split(r"(?<=[.!?;])\s+(?=[A-Z])|\s*[•·▪]\s*|\n+", segment)
-    return [p.strip(" -–:;") for p in parts if 25 <= len(p.strip()) <= 300 and not BOILERPLATE.search(p)]
+    """Requirement-sized pieces: bullets / sentences, skipping fragments, boilerplate and culture copy."""
+    parts = [q for p in re.split(r"(?<=[.!?;])\s+(?=[A-Z])|\s*[•·▪]\s*|\n+", segment) for q in ITEM_START.split(p)]
+    return [p.strip(" -–:;") for p in parts if 25 <= len(p.strip()) <= 320 and not BOILERPLATE.search(p)
+            and not CULTURE.search(p) and REQUIREMENT_SIGNAL.search(p)]
 
 
 LIST_INTRO = re.compile(r"(?:such as|including|e\.g\.,?|like|for example|experience with|familiarity with|knowledge of|"
@@ -271,7 +288,8 @@ def analyze(jd: dict, resume: dict, other_resume_text: str = "") -> dict:
     hard = sum(k["weight"] for k in kws if k["in_resume"]) / total_w if kws else 1.0
     # job title: the role words ("software engineer", "machine learning") should appear in your resume
     tokens = [t for t in jd["title_core"].split() if len(t) > 1 and t not in {"and", "of", "the", "for"}]
-    title_hit = [t for t in tokens if re.search(rf"(?<!\w){re.escape(t)}(?!\w)", low)]
+    # "ai/ml" counts if the resume shows either part
+    title_hit = [t for t in tokens if any(re.search(rf"(?<!\w){re.escape(p)}(?!\w)", low) for p in t.split("/") if p)]
     phrase = bool(jd["title_core"]) and jd["title_core"] in low
     title = 1.0 if phrase or not tokens else len(title_hit) / len(tokens) * 0.8
     # education
