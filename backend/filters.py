@@ -27,13 +27,27 @@ def _rx(terms: tuple[str, ...]) -> re.Pattern:
     return re.compile(rf"(?<!\w)(?:{'|'.join(alts)})(?!\w)" if alts else r"(?!)")
 
 
+@lru_cache(maxsize=512)
+def _lowered(terms: tuple[str, ...]) -> tuple[str, ...]:
+    return tuple(x.lower() for x in terms if x)
+
+
+def _maybe(text: str, terms: tuple[str, ...]) -> bool:
+    """Cheap substring pre-check: most term lists appear nowhere in a posting, so skip the (slow) regex scan."""
+    return any(x in text for x in _lowered(terms))
+
+
 def _words(text: str, terms: list[str]) -> list[str]:
     """Whole-word/phrase hits, so "itar" doesn't match "guitar". One precompiled regex per term list."""
-    return list(dict.fromkeys(m.group(0) for m in _rx(tuple(terms)).finditer(text)))
+    terms = tuple(terms)
+    if not _maybe(text, terms):
+        return []
+    return list(dict.fromkeys(m.group(0) for m in _rx(terms).finditer(text)))
 
 
 def _word(text: str, terms: list[str]) -> bool:
-    return _rx(tuple(terms)).search(text) is not None
+    terms = tuple(terms)
+    return _maybe(text, terms) and _rx(terms).search(text) is not None
 
 
 SEASON_END = {"winter": 3, "spring": 5, "summer": 8, "fall": 12}  # month the season is over

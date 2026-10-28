@@ -53,9 +53,26 @@ def job_skills(j: Job) -> set[str]:
     return hit[1]
 
 
+@lru_cache
+def _skills_rx() -> tuple[re.Pattern, dict[str, str], dict[str, tuple[str, ...]]]:
+    """One regex for every alias (a single pass per job instead of one search per skill), plus the few skills whose
+    alias starts another skill's phrase ("llm" in "llm evaluation") and so need their own check."""
+    alias = {}
+    for canon, names in skills_dict().items():
+        for n in names:
+            alias.setdefault(n, canon)
+    alts = sorted(map(re.escape, alias), key=len, reverse=True)
+    rx = re.compile(rf"(?<!\w)(?=({'|'.join(alts)})(?!\w))")
+    shadowed = {alias[a]: tuple(skills_dict()[alias[a]]) for a in alias for b in alias
+                if alias[a] != alias[b] and b.startswith(a) and not re.match(r"\w", b[len(a)])}
+    return rx, alias, shadowed
+
+
 def skills_in(text: str) -> set[str]:
     t = text.lower()
-    return {canon for canon, names in skills_dict().items() if _rx(tuple(names)).search(t)}
+    rx, alias, shadowed = _skills_rx()
+    found = {alias[m.group(1)] for m in rx.finditer(t)}
+    return found | {c for c, names in shadowed.items() if c not in found and _rx(names).search(t)}
 
 
 # --- resume lanes ---------------------------------------------------------

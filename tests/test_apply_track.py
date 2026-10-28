@@ -54,6 +54,7 @@ def test_ghosted_after_30_days_and_stats(db):
     assert {r["job_id"]: r["status"] for r in tracker.rows()}["j0"] == "ghosted"
     st = tracker.stats()
     assert st["applied_total"] == 2 and st["by_status"]["interview"] == 1 and st["response_rate"] == 0.5
+    assert len(st["applied_by_day"]) == 7 and st["applied_by_day"][-1] == 2  # both applied today (Home's week chart)
 
 
 def test_manual_entry_and_csv(db):

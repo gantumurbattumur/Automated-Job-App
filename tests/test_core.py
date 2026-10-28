@@ -173,3 +173,10 @@ def test_index_busts_cached_scripts():
 def test_do_not_offer_visa_sponsorship_warns():
     f = classify("Data Intern", "acme", "At this time, we do not offer visa sponsorship for this role.")
     assert f.no_future_sponsorship and any("no sponsorship later" in w for w in f.warnings)
+
+
+def test_skills_single_pass_matches_whole_words_and_shared_prefixes():
+    from backend.relevance import skills_in
+    found = skills_in("Experience with LLM evaluation, GitHub Actions and C++; not a guitarist")
+    assert {"llm", "llm evaluation", "git", "github actions", "c++"} <= found  # "llm"/"git" start longer skill phrases
+    assert "java" not in skills_in("JavaScript developer")  # whole words only

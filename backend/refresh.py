@@ -188,7 +188,7 @@ def run(source: str) -> dict:
     _save_status()
     if not first_import:  # the very first import is thousands of "new" jobs; don't alert on it
         _notify(added)
-    feed.build(settings.get())  # warm the cache so the next page load is instant
+    feed.build_cached(settings.get())  # warm the cache so the next page load is instant
     return result
 
 

@@ -2,6 +2,7 @@
 import csv
 import io
 import uuid
+from collections import Counter
 from datetime import datetime, timedelta, timezone
 
 from sqlmodel import select
@@ -91,7 +92,10 @@ def stats() -> dict:
     applied = [r for r in rs if r["applied_at"]]
     week = _now() - timedelta(days=7)
     responded = sum(by[s] for s in ("oa", "interview", "offer", "rejected"))
+    per_day = Counter(_aware(r["applied_at"]).astimezone().date() for r in applied)  # your local days
+    today = datetime.now().date()
     return {"by_status": by, "applied_total": len(applied),
+            "applied_by_day": [per_day[today - timedelta(days=i)] for i in range(6, -1, -1)],  # oldest first, today last
             "applied_last_7d": sum(1 for r in applied if _aware(r["applied_at"]) >= week),
             "response_rate": round(responded / len(applied), 2) if applied else 0,
             "follow_ups_due": sum(1 for r in rs if r["follow_up"] and r["follow_up"] <= _now().date().isoformat()

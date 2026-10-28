@@ -161,50 +161,68 @@ async function loadInboxCount() {
   el.textContent = items.length; el.classList.toggle('hidden', !items.length);
 }
 
-// ---------- HOME ----------
+// ---------- HOME: today's plan (Jobs is for browsing everything) ----------
 async function renderHome() {
   if (!$('#page-home').innerHTML.trim()) $('#page-home').innerHTML = LOADING;
   const [h, t] = await Promise.all([api('/home'), api('/tailor').catch(() => ({ items: [] }))]);
   const s = h.stats, by = s.by_status;
-  const top = h.top.length ? h.top : [];
+  const picks = h.top.slice(0, 6);
   const toTailor = t.items.filter(i => !i.suggestions || i.accepted < i.suggestions);
-  const steps = [
+  const todo = [
     ...h.follow_ups.map(a => ({ go: 'tracker', tag: ['warn', 'Follow up'], text: `${a.company} — ${a.title}`, meta: a.follow_up })),
     h.inbox ? { go: 'inbox', tag: ['ac', 'Inbox'], text: `${h.inbox} job email${h.inbox > 1 ? 's' : ''} to review` } : null,
-    toTailor.length ? { go: 'tailor', tag: ['ac', 'Tailor'], text: `${toTailor.length} resume${toTailor.length > 1 ? 's' : ''} to finish tailoring` } : null,
     ...h.closing_soon.slice(0, 3).map(j => ({ open: j.id, tag: ['warn', `${Math.ceil(j.days_left)}d left`], text: `${j.title} · ${j.company}` })),
     !h.gmail ? { go: 'inbox', tag: ['', 'Setup'], text: 'Connect Gmail so replies update your tracker' } : null,
   ].filter(Boolean);
+  const today = new Date().toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' });
+  const stages = [['saved', 'Saved'], ['applied', 'Applied'], ['oa', 'Assessment'], ['interview', 'Interview'], ['offer', 'Offer'], ['rejected', 'Rejected']];
+  const days = s.applied_by_day || [], peak = Math.max(1, ...days);
+  const dayName = i => new Date(Date.now() - (6 - i) * 864e5).toLocaleDateString([], { weekday: 'narrow' });
+  const row = x => `<div class="list-row" ${x.go ? `data-go="${x.go}"` : `data-open="${esc(x.open)}"`}><span class="tag ${x.tag[0]}">${esc(x.tag[1])}</span><span class="grow small">${esc(x.text)}</span>${x.meta ? `<span class="tiny mut">${esc(x.meta)}</span>` : ''}</div>`;
   $('#page-home').innerHTML = `
-    <div class="hero"><div><h1>${h.new_today ? `${h.new_today} new match${h.new_today > 1 ? 'es' : ''} today` : 'No new matches yet today'}</h1>
-      <p>${h.shown.toLocaleString()} internships fit your filters · ${s.applied_last_7d} applied this week${t.items.length ? ` · ${t.items.length} being tailored` : ''}</p></div>
-      <button class="btn primary" data-go="jobs">Browse all matches →</button></div>
-    <div class="stats3">
-      <div class="card" data-go="jobs"><div class="v">${h.shown.toLocaleString()}</div><div class="l">matches · ${h.cpt_friendly.toLocaleString()} CPT-friendly or H-1B sponsors</div></div>
-      <div class="card" data-go="tracker"><div class="v">${s.applied_total}</div><div class="l">applied · ${by.oa + by.interview} assessments/interviews · ${by.offer} offers</div></div>
-      <div class="card" data-go="tracker"><div class="v">${Math.round(s.response_rate * 100)}%</div><div class="l">response rate · ${by.rejected} rejected · ${by.ghosted} no reply in 30 days</div></div>
+    <div class="hero"><div><div class="small mut">${today}</div>
+      <h1>${h.new_today ? `${h.new_today} new match${h.new_today > 1 ? 'es' : ''} today` : 'No new matches yet today'}</h1>
+      <p>Your plan: review today’s picks, tailor the best ones, apply.</p></div>
+      <button class="btn" data-go="jobs">Browse all ${h.shown.toLocaleString()} matches →</button></div>
+    <div class="card funnel">
+      <div class="fn-stages">${stages.map(([k, l]) => `<div class="fn-stage ${k}" data-go="tracker"><div class="v">${by[k] || 0}</div><div class="l">${l}</div></div>`).join('')}</div>
+      <div class="fn-week" title="Applications per day, last 7 days"><div class="fn-bars">${days.map((n, i) => `<div class="bar-d ${i === 6 ? 'today' : ''}" title="${n} applied"><i style="height:${Math.round(n / peak * 100)}%"></i><span>${dayName(i)}</span></div>`).join('')}</div>
+        <div class="small"><b>${s.applied_last_7d}</b> applied this week · <b>${Math.round(s.response_rate * 100)}%</b> response rate</div></div>
     </div>
-    <div class="home2">
-      <div class="card"><div class="hd"><h2>${top.length ? 'Top new matches' : 'Nothing new in the last 24 hours'}</h2><span class="small mut">best first</span></div>
-        <div>${top.length ? top.map(matchRow).join('') : '<div class="empty">The next refresh runs automatically. Meanwhile, browse all matches.</div>'}</div></div>
-      <div class="card steps-list"><div class="hd"><h2>Next steps</h2></div><div>
-        ${steps.length ? steps.map(x => `<div class="list-row" ${x.go ? `data-go="${x.go}"` : `data-open="${esc(x.open)}"`}><span class="tag ${x.tag[0]}">${esc(x.tag[1])}</span><span class="grow small">${esc(x.text)}</span>${x.meta ? `<span class="tiny mut">${esc(x.meta)}</span>` : ''}</div>`).join('')
-          : '<div class="empty">All caught up.</div>'}</div></div>
+    <div class="home3">
+      <div><div class="sec-hd"><h2>Today’s picks</h2><span class="small mut">best new matches for your resume</span></div>
+        ${picks.length ? `<div class="picks">${picks.map(pickCard).join('')}</div>` : '<div class="card"><div class="empty">Nothing new in the last 24 hours. The next run is tomorrow morning — meanwhile, browse all matches.</div></div>'}</div>
+      <div class="side">
+        <div class="card"><div class="hd"><h2>To do</h2></div><div>${todo.length ? todo.map(row).join('') : '<div class="empty small">All caught up.</div>'}</div></div>
+        <div class="card"><div class="hd"><h2>Tailoring</h2><a href="#tailor" class="small">${t.items.length}/${t.max || 10} →</a></div><div>
+          ${t.items.length ? t.items.slice(0, 5).map(i => ({ ...i, score: i.score ?? i.baseline ?? 0 })).map(i => `<div class="list-row" data-go="tailor"><span class="grow small"><b>${esc(i.company)}</b> · ${esc(i.title)}
+            <div class="meter"><i class="${i.score >= 75 ? 'ok' : i.score >= 55 ? 'mid' : ''}" style="width:${Math.round(i.score)}%"></i></div></span>
+            <span class="small"><b>${Math.round(i.score)}%</b></span></div>`).join('') + (toTailor.length ? `<div class="tiny mut" style="padding:6px 14px">${toTailor.length} still need suggestions reviewed</div>` : '')
+          : '<div class="empty small">Click ✎ Tailor on a pick to match your resume to it.</div>'}</div></div>
+        <div class="card"><div class="hd"><h2>Recent activity</h2><a href="#tracker" class="small">Tracker →</a></div><div>
+          ${h.recent.length ? h.recent.slice(0, 5).map(a => `<div class="list-row" data-go="tracker"><span class="tag ${a.status === 'rejected' ? 'bad' : ['oa', 'interview', 'offer'].includes(a.status) ? 'ok' : 'ac'}">${SLABEL[a.status]}</span><span class="grow small">${esc(a.company)} · ${esc(a.title)}</span><span class="tiny mut">${ago(a.updated_at || a.opened_at)}</span></div>`).join('')
+          : '<div class="empty small">Nothing tracked yet.</div>'}</div></div>
+      </div>
     </div>`;
   bindRows($('#page-home'));
   $$('#page-home [data-hact]').forEach(b => b.onclick = async e => {
     e.stopPropagation();
-    const j = top.find(x => x.id === b.dataset.id);
+    const j = picks.find(x => x.id === b.dataset.id);
     if (b.dataset.hact === 'apply') return act('apply', j);
     try { const r = await post('/tailor', { job_id: j.id }); tailorSel = r.id; go('tailor'); } catch (err) { toast(err.message); }
   });
 }
-function matchRow(j) {
-  return `<div class="match-row"><span class="score ${scoreCls(j.score)}">${Math.round(j.score)}</span>
-    <span style="cursor:pointer" data-open="${esc(j.id)}"><b>${esc(j.title)}</b><br><span class="small mut">${esc(j.company)} · ${esc(shortLoc(j.location))} · ${ago(j.posted_at)}</span> ${cptTag(j)}</span>
-    <span class="acts"><button class="btn sm" data-hact="tailor" data-id="${esc(j.id)}">✎ Tailor</button><button class="btn sm primary" data-hact="apply" data-id="${esc(j.id)}">Apply ↗</button></span></div>`;
+function pickCard(j) {
+  const why = (j.skills_matched || []).slice(0, 4), miss = (j.skills_missing || []).slice(0, 2);
+  return `<div class="card pick"><div class="row between"><span class="score ${scoreCls(j.score)}">${Math.round(j.score)}</span>
+      <span class="tiny mut">${ago(j.posted_at)} · ${esc(laneLabel(j.best_lane))} resume</span></div>
+    <div class="pk-t" data-open="${esc(j.id)}" title="Open in Jobs"><b>${esc(j.title)}</b></div>
+    <div class="small mut">${esc(j.company)} · ${esc(shortLoc(j.location))}</div>
+    ${why.length ? `<div class="small pk-why"><span class="ok">✓</span> ${why.map(esc).join(', ')}${miss.length ? ` <span class="mut">· missing ${miss.map(esc).join(', ')}</span>` : ''}</div>` : ''}
+    <div class="tags">${cptTagIfKnown(j)}${j.days_left != null && j.days_left >= 0 ? `<span class="tag warn">${Math.ceil(j.days_left)}d left</span>` : ''}${j.hourly ? `<span class="tag">$${j.hourly[1]}/hr</span>` : ''}</div>
+    <div class="acts"><button class="btn sm" data-hact="tailor" data-id="${esc(j.id)}">✎ Tailor</button><button class="btn sm primary" data-hact="apply" data-id="${esc(j.id)}">Apply ↗</button></div></div>`;
 }
-const LOADING = '<div class="card"><div class="empty"><span class="spin"></span> Loading… the first load after JobPrep restarts can take up to a minute.</div></div>';
+const LOADING = '<div class="card"><div class="empty"><span class="spin"></span> Loading…</div></div>';
 const kpi = (v, l) => `<div class="card kpi"><div class="v">${v}</div><div class="l">${l}</div></div>`;
 function sourceList(st) {
   return [['morning', 'Morning run (everything)'], ['simplify', 'SimplifyJobs internship list'], ['ats', 'Company job boards'], ['gmail', 'Gmail scan'], ['digest', 'Morning digest'], ['maintenance', 'Cleanup & backup']]
@@ -224,6 +242,8 @@ const shortLoc = l => {  // "Pittsburgh PA, 15222, PAP, Penn Avenue Place, Unite
   const first = (parts[0] || '').split(',').map(x => x.trim()).filter(x => x && !/^\d{5}$|^(united states( of america)?|usa|us)$/i.test(x)).slice(0, 2).join(', ');
   return parts.length > 1 ? `${first} +${parts.length - 1}` : (first || 'Location not listed');
 };
+// "CPT unclear" is the norm, so lists only show the tag when it says something
+const cptTagIfKnown = j => j.cpt !== 'unclear' || j.cpt_label?.startsWith('likely') ? cptTag(j) : '';
 function cptTag(j) {
   if (j.cpt_label?.startsWith('likely')) return `<span class="tag ok" title="${esc(j.cpt_label)}">Likely CPT OK</span>`;
   if (j.cpt_label?.startsWith('rejected')) return `<span class="tag bad">Rejected you over CPT</span>`;
@@ -368,16 +388,19 @@ function renderList() {
   if (selected) select(selected, false); else $('#detail').innerHTML = '<div class="card"><div class="empty">Select a job to see the details.</div></div>';
 }
 function listItem(j) {
-  const hid = j.hidden_reasons.length;
+  const hid = j.hidden_reasons.length, why = (j.skills_matched || []).slice(0, 4);
+  const tags = [j.status ? `<span class="tag ac">${SLABEL[j.status]}</span>` : '',
+    cptTagIfKnown(j),
+    j.days_left != null && j.days_left >= 0 && j.days_left <= 14 ? `<span class="tag warn">${Math.ceil(j.days_left)}d left</span>` : '',
+    j.hourly ? `<span class="tag">$${j.hourly[1]}/hr</span>` : '',
+    j.work_mode && j.work_mode !== 'onsite' ? `<span class="tag">${esc(j.work_mode)}</span>` : '',
+    hid ? `<span class="tag bad">hidden: ${esc(j.hidden_reasons[0])}${hid > 1 ? ` +${hid - 1}` : ''}</span>` : ''].join('');
   return `<div class="job ${j.id === selected ? 'sel' : ''} ${hid ? 'is-hidden' : ''}" data-id="${esc(j.id)}">
     <div class="t">${isUnseen(j) ? '<span class="unseen-dot" title="New since your last visit"></span>' : ''}${esc(j.title)}</div>
     <div class="score ${scoreCls(j.score)}" title="Score out of 100">${Math.round(j.score)}</div>
-    <div class="meta">${esc(j.company)} · ${esc(shortLoc(j.location))}${j.distance_mi != null ? ` · <b>${j.distance_mi} mi</b>` : ''} · ${ago(j.posted_at)}</div>
-    <div class="tags">${j.is_new ? '<span class="tag ok">NEW</span>' : ''}${cptTag(j)}
-      ${j.status ? `<span class="tag ac">${SLABEL[j.status]}</span>` : ''}
-      ${j.days_left != null && j.days_left >= 0 && j.days_left <= 14 ? `<span class="tag warn">${Math.ceil(j.days_left)}d left</span>` : ''}
-      ${j.hourly ? `<span class="tag">$${j.hourly[1]}/hr</span>` : ''}
-      ${hid ? `<span class="tag bad">hidden: ${esc(j.hidden_reasons[0])}${hid > 1 ? ` +${hid - 1}` : ''}</span>` : ''}</div></div>`;
+    <div class="meta"><b class="co">${esc(j.company)}</b> · ${esc(shortLoc(j.location))}${j.distance_mi != null ? ` · <b>${j.distance_mi} mi</b>` : ''} · ${ago(j.posted_at)}</div>
+    ${why.length ? `<div class="why">✓ ${why.map(esc).join(' · ')}</div>` : ''}
+    ${tags ? `<div class="tags">${tags}</div>` : ''}</div>`;
 }
 async function select(id, scroll = true) {
   selected = id;

@@ -76,7 +76,7 @@ def test_ui_end_to_end(server):
         page.on("console", lambda m: m.type == "error" and errors.append(m.text))
 
         page.goto(f"{server}/#home")
-        page.wait_for_selector("#page-home >> text=Browse all matches", timeout=120000)
+        page.wait_for_selector("#page-home >> text=Today’s picks", timeout=120000)
 
         # Jobs: ranked list, detail with score breakdown, eligibility, resume match
         page.click("#nav [data-page=jobs]")

@@ -1,3 +1,4 @@
+import os
 import threading
 from datetime import datetime, timezone
 
@@ -22,6 +23,8 @@ app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173"], allo
 def _startup():
     init_db()
     refresh_mod.start_scheduler()
+    if not os.environ.get("JOBPREP_NO_SCHEDULER"):
+        feed.warm()
 
 
 @app.post("/refresh")

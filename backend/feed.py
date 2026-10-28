@@ -2,6 +2,7 @@
 import json
 import re
 import threading
+import time
 from datetime import datetime, timezone
 
 from sqlmodel import select
@@ -174,16 +175,32 @@ _deadlines: dict[tuple, datetime | None] = {}
 
 
 _memo: dict = {"key": None, "at": 0.0, "rows": None}
+_build_lock = threading.Lock()
 
 
 def build_cached(st: Settings, max_age: float = 60) -> list[dict]:
-    """build(), reused for up to `max_age` seconds while settings, jobs and your tracker are unchanged."""
-    import time
+    """build(), reused while settings, jobs and your tracker are unchanged. After `max_age` seconds (freshness and
+    "days left" drift) the cached list is still returned at once and re-ranked in the background."""
     with session() as s:
         apps = tuple(sorted((a.job_id, a.status, a.cpt_issue) for a in s.exec(select(Application)).all()))
     key = (st.model_dump_json(), _version(), hash(apps))
-    if _memo["key"] == key and time.time() - _memo["at"] < max_age:
+    if _memo["key"] == key:
+        if time.time() - _memo["at"] >= max_age and not _build_lock.locked():
+            threading.Thread(target=_rebuild, args=(st, key, max_age), name="jobprep-rerank", daemon=True).start()
         return _memo["rows"]
-    rows = build(st)
-    _memo.update(key=key, at=time.time(), rows=rows)
-    return rows
+    with _build_lock:  # pages load several endpoints at once: one build, the others wait and reuse it
+        if _memo["key"] != key:
+            _memo.update(key=key, at=time.time(), rows=build(st))
+        return _memo["rows"]
+
+
+def _rebuild(st: Settings, key: tuple, max_age: float) -> None:
+    with _build_lock:
+        if _memo["key"] == key and time.time() - _memo["at"] >= max_age:  # not already redone by another request
+            _memo.update(at=time.time(), rows=build(st))
+
+
+def warm() -> None:
+    """Build the feed in the background at startup so the first page load doesn't wait for it."""
+    from . import settings
+    threading.Thread(target=lambda: build_cached(settings.get()), name="jobprep-warm", daemon=True).start()
