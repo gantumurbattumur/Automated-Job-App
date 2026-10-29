@@ -90,6 +90,19 @@ def test_ui_end_to_end(server):
         glance = page.inner_text("#detail .glance")
         assert "CPT friendly" in glance and "Dec 1" in glance  # at-a-glance chips: CPT + deadline (shown as a date, not shifted a day)
 
+        # narrow window: one pane at a time — clicking a job shows it, "All jobs" goes back
+        page.set_viewport_size({"width": 800, "height": 900})
+        assert page.is_visible("#detail") and not page.is_visible("#list")  # the job opened above stays open
+        page.click("#detailBack")
+        page.wait_for_selector("#list .job")
+        assert not page.is_visible("#detail")
+        page.locator("#list .job", has_text="Machine Learning Intern").click()
+        page.wait_for_selector("#detail >> text=Tailor resume")
+        assert not page.is_visible("#list")
+        page.keyboard.press("Escape")
+        page.wait_for_selector("#list .job")
+        page.set_viewport_size({"width": 1280, "height": 900})
+
         # show hidden explains why
         page.check("#showHidden")
         page.wait_for_selector("#list .job.is-hidden")

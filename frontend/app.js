@@ -235,7 +235,7 @@ function jobRow(j) {
 }
 function bindRows(root) {
   $$('[data-go]', root).forEach(b => b.onclick = () => go(b.dataset.go));
-  $$('[data-open]', root).forEach(b => b.onclick = () => { selected = b.dataset.open; go('jobs'); });
+  $$('[data-open]', root).forEach(b => b.onclick = () => { selected = b.dataset.open; openOnLoad = true; go('jobs'); });
 }
 const shortLoc = l => {  // "Pittsburgh PA, 15222, PAP, Penn Avenue Place, United States of America" -> "Pittsburgh PA"
   const parts = String(l || '').split(/;|•/).map(x => x.trim()).filter(Boolean);
@@ -252,6 +252,7 @@ function cptTag(j) {
 
 // ---------- JOBS ----------
 async function renderJobsPage() {
+  if (!openOnLoad) $('#page-jobs').classList.remove('show-detail');  // the nav opens the list
   if (!Object.keys(S).length) await loadSettings();
   renderQuickbar();
   renderFilters();
@@ -383,10 +384,18 @@ function renderList() {
   $('#counts').innerHTML = `<b>${feed.shown_count.toLocaleString()}</b> shown · ${feed.hidden_count.toLocaleString()} hidden${unseen ? ` · <b class="ok">${unseen} new since last visit</b> <a href="#" id="markSeen">mark seen</a>` : ''}`;
   if ($('#markSeen')) $('#markSeen').onclick = e => { e.preventDefault(); lastVisit = Date.now(); store.set('lastVisit', lastVisit); renderList(); };
   $('#list').innerHTML = rows.length ? rows.map(listItem).join('') : `<div class="empty">No jobs match these filters.<br><span class="small">Try a wider “Posted within”, or clear a category.</span></div>`;
-  $$('#list .job').forEach(el => el.onclick = () => select(el.dataset.id));
+  $$('#list .job').forEach(el => el.onclick = () => { select(el.dataset.id); showDetail(true); });
   if (!rows.find(r => r.id === selected)) selected = rows[0]?.id || null;
-  if (selected) select(selected, false); else $('#detail').innerHTML = '<div class="card"><div class="empty">Select a job to see the details.</div></div>';
+  if (selected) { select(selected, false); if (openOnLoad) showDetail(true); } else $('#detail').innerHTML = '<div class="card"><div class="empty">Select a job to see the details.</div></div>';
 }
+// narrow screens show one pane at a time: the list, or the selected job with a back button
+let openOnLoad = false;
+function showDetail(on) {
+  openOnLoad = false;
+  $('#page-jobs').classList.toggle('show-detail', on);
+  if (on && matchMedia('(max-width: 1100px)').matches) $('#main').scrollTo(0, 0);
+}
+document.addEventListener('click', e => { if (e.target.closest('#detailBack')) showDetail(false); });
 function listItem(j) {
   const hid = j.hidden_reasons.length, why = (j.skills_matched || []).slice(0, 4);
   const tags = [j.status ? `<span class="tag ac">${SLABEL[j.status]}</span>` : '',
@@ -424,6 +433,7 @@ function renderDetail(j, full) {
     ...(j.education || []).map(e => `<span class="tag warn">${esc(e.replace(/_/g, ' '))}</span>`),
     ...(j.warnings || []).filter(w => !(w.startsWith("Master's") && (j.education || []).includes('masters_not_listed'))).map(w => `<span class="tag warn">${esc(w)}</span>`)].filter(Boolean).join('');
   $('#detail').innerHTML = `
+    <button class="btn sm back-btn" id="detailBack">← All jobs</button>
     <div class="card"><div class="bd">
       <div class="row between"><span class="small mut">${esc(j.company)}</span><span class="score ${scoreCls(j.score)}" style="grid-row:auto" title="Match score">${Math.round(j.score ?? 0)}</span></div>
       <div class="title">${esc(j.title)}</div>
@@ -479,6 +489,7 @@ $('#sort').value = sort; $('#sort').onchange = e => { sort = e.target.value; sto
 $('#showHidden').onchange = e => { showHidden = e.target.checked; loadJobs(); };
 document.addEventListener('keydown', e => {
   if ($('#page-jobs').classList.contains('hidden') || e.target.matches('input, textarea, select') || e.metaKey || e.ctrlKey) return;
+  if (e.key === 'Escape') return showDetail(false);
   const rows = visibleRows(), i = rows.findIndex(r => r.id === selected), j = rows[i];
   if (e.key === 'j' && i < rows.length - 1) select(rows[i + 1].id);
   else if (e.key === 'k' && i > 0) select(rows[i - 1].id);

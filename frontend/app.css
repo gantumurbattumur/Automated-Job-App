@@ -223,5 +223,11 @@ table.t tr:last-child td { border-bottom: 0; } table.t td.k { color: var(--mut);
 .pick .pk-why { color: var(--fg); } .pick .tags { display: flex; gap: 4px; flex-wrap: wrap; }
 .pick .acts { display: flex; gap: 6px; margin-top: auto; padding-top: 4px; } .pick .acts .btn { flex: 1; }
 .steps-list .list-row { cursor: pointer; }
-@media (max-width: 1100px) { .jobs2, .home3, .funnel { grid-template-columns: 1fr; height: auto; } .list { max-height: 60vh; } }
+@media (max-width: 1100px) { .jobs2, .home3, .funnel { grid-template-columns: 1fr; height: auto; } .list { max-height: 70vh; } }
+.back-btn { display: none; margin-bottom: 10px; }
+@media (max-width: 1100px) {
+  #page-jobs .detail { display: none; }
+  #page-jobs.show-detail .detail { display: block; } #page-jobs.show-detail .back-btn { display: inline-block; }
+  #page-jobs.show-detail .results, #page-jobs.show-detail .quickbar { display: none; }
+}
 @media (max-width: 700px) { .fn-stages { grid-template-columns: repeat(3, 1fr); } }
