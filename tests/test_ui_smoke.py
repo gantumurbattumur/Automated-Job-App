@@ -90,6 +90,15 @@ def test_ui_end_to_end(server):
         glance = page.inner_text("#detail .glance")
         assert "CPT friendly" in glance and "Dec 1" in glance  # at-a-glance chips: CPT + deadline (shown as a date, not shifted a day)
 
+        # resume fit: the map shows your resume with the job's keywords placed (opened state is remembered)
+        page.click("#fitToggle")
+        page.wait_for_selector("#fitBody .rmap", timeout=60000)
+        fit = page.inner_text("#fitBody")
+        assert "ATS-style match" in fit and "SUMMARY" in fit
+        assert "Couldn’t find SKILLS" in fit  # the scratch resume has no headings: say so instead of an empty map
+        page.click("#fitToggle")
+        assert not page.is_visible("#fitBody .rmap")
+
         # narrow window: one pane at a time — clicking a job shows it, "All jobs" goes back
         page.set_viewport_size({"width": 800, "height": 900})
         assert page.is_visible("#detail") and not page.is_visible("#list")  # the job opened above stays open
@@ -177,6 +186,9 @@ def test_ui_end_to_end(server):
         item = httpx.get(f"{server}/tailor").json()["items"][0]
         assert "truthful" in httpx.get(f"{server}/tailor/{item['id']}/prompt").json()["prompt"]
         reply = '{"suggestions": [{"type": "new", "target": "", "text": "Containerized PyTorch model services with Docker and Kubernetes for repeatable deploys.", "keywords": ["Kubernetes"], "why": "preferred"}], "skills_to_add": [], "summary": "", "gaps": ["Kafka"]}'
+        page.click("#tdetail .tabs [data-tab=map]")
+        page.wait_for_selector("#tdetail .rmap")
+        assert "+ Kubernetes" in page.inner_text("#tdetail") or "Kubernetes" in page.inner_text("#tdetail .rm-gaps")
         page.click("#tdetail .tabs [data-tab=suggest]")
         page.fill("#treply", reply)
         page.click("#timport")

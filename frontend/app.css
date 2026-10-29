@@ -231,3 +231,18 @@ table.t tr:last-child td { border-bottom: 0; } table.t td.k { color: var(--mut);
   #page-jobs.show-detail .results, #page-jobs.show-detail .quickbar { display: none; }
 }
 @media (max-width: 700px) { .fn-stages { grid-template-columns: repeat(3, 1fr); } }
+
+/* ---------- resume map ---------- */
+.rmap { border: 1px solid var(--bd); border-radius: var(--r); background: var(--panel); padding: 12px 14px; font-size: 13px; }
+.rmap p { margin: 0; } .rmap ul { margin: 4px 0 8px; padding-left: 18px; } .rmap li { margin: 4px 0; }
+.rm-sec + .rm-sec { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--bd); }
+.rm-h { font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--mut); margin-bottom: 6px; }
+.rm-eh { font-weight: 600; } .rm-line { margin: 3px 0; }
+.rmap mark, .rm-legend mark { background: var(--ok-soft); color: var(--ok); border-radius: 3px; padding: 0 2px; }
+.add-chip { display: inline-block; border: 1px dashed var(--ac); background: var(--ac-soft); color: var(--ac); border-radius: 99px;
+  padding: 0 7px; font-size: 11px; margin: 2px 4px 0 0; cursor: help; }
+.rm-adds { margin-top: 2px; }
+.rm-sup { font-size: 11px; color: var(--c-cpt); white-space: nowrap; cursor: help; }
+.rm-id { font: 10px ui-monospace, monospace; color: var(--faint); margin-right: 6px; }
+.rm-legend { margin-bottom: 8px; line-height: 1.8; }
+.rm-gaps { margin-top: 10px; padding: 10px 12px; border-radius: var(--r); background: var(--warn-soft); }

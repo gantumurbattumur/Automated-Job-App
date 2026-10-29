@@ -19,7 +19,7 @@ uv pip install --python .venv/bin/python fastapi "uvicorn[standard]" sqlmodel ht
 ## Pages
 - **Home** – your plan for today: the best new picks (with the skills they match), to-dos (follow-ups, inbox, deadlines), tailoring progress, your application pipeline, a 7-day chart and recent activity. **Jobs** is where you browse and filter everything.
 - **Jobs** – filters (left; includes LinkedIn-style "Near <city> within N miles" using a free offline city list) · ranked list (middle, `j`/`k` to move) · details (right): why it ranks there, F-1/CPT eligibility,
-  H-1B history and how well your resume matches (with a **✎ Tailor resume** button).
+  H-1B history and how well your resume matches. **Resume fit → Where to add keywords** shows your resume map (below).
 - **Tracker** – drag-and-drop board or table; tag "rejected over CPT" so that company ranks lower next time.
 - **Inbox** – Gmail connection and job emails to review. **Resumes** – upload/replace/revert resumes (PDF, DOCX, TXT),
   set the primary one and title keywords; every job is re-scored immediately and you see how your top 50 changed.
@@ -29,6 +29,11 @@ uv pip install --python .venv/bin/python fastapi "uvicorn[standard]" sqlmodel ht
 For each job, JobPrep compares the description with your resume and scores the match like ATS tools do — hard-skill
 keywords 40% (frequent / required ones weigh more), requirements backed by a bullet 25%, job title 15%, education 10%,
 soft skills 10%. It shows every missing keyword, each requirement with your closest bullet, and builds a prompt.
+
+**Resume map** (on a job's detail and as a tab on Tailor): your resume laid out section by section, with the job's
+keywords highlighted where you already have them, each missing keyword placed on the bullet or skills line it fits best
+(hover a chip to see the job's sentence), which bullets prove which requirements, and the gaps nothing in your resume
+supports — add those only if they're true.
 1. **✎ Tailor resume** on a job (or paste any description on the Tailor page).
 2. **Copy prompt** → paste into Claude (your plan) → paste Claude's JSON reply back → **Import & re-score**.
    Or run `/tailor-resume` in Claude Code to do this for every job.

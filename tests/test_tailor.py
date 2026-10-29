@@ -158,3 +158,33 @@ def test_run_together_lists_and_more_headers():
     assert any(t.startswith("Proficient Python") for t in texts) and any(t.startswith("Working towards a Master") for t in texts)
     assert not any("days per week" in t or "Wellbeing" in t for t in texts)
     assert {"required", "responsibilities"} <= set(jd["sections_found"])
+
+
+def test_resume_map_places_missing_keywords_where_they_fit(monkeypatch):
+    import numpy as np
+    vocab = ["docker", "deploy", "service", "rag", "gpt", "faiss", "stream", "event"]
+
+    def embed(texts):  # bag of words: "deploy services with Kubernetes" reads like the Docker/AWS bullet
+        v = np.array([[t.lower().count(w) for w in vocab] for t in texts], dtype=np.float32) + 1e-3
+        return v / np.linalg.norm(v, axis=1, keepdims=True)
+    monkeypatch.setattr(tailor, "_embed", embed)
+    jd = tailor.parse_jd("Software Engineer Intern", "Minimum Qualifications: Experience to deploy services with Docker and "
+                         "Kubernetes. Experience to stream events with Kafka. Must be authorized to work in the United States "
+                         "without sponsorship. Benefits: medical.", company="Kubeflow Systems")
+    r = tailor.parse_resume(RESUME)
+    m = tailor.resume_map(jd, r, tailor.analyze(jd, r))
+    bullets = {b["id"]: b for e in m["entries"] for b in e["bullets"]}
+    assert [x["term"] for x in bullets["E1.2"]["adds"]] == ["Kubernetes"]  # fits the "Deployed services using Docker" bullet
+    assert "Kubernetes" in bullets["E1.2"]["adds"][0]["why"]  # with the job's own sentence as the reason
+    assert [g["term"] for g in m["gaps"]] == ["Kafka"]  # nothing supports it: an honest gap, not a placement
+    assert any("Kafka" in [x["term"] for x in line["adds"]] for line in m["skills"])  # tools also go on a skills line
+    docker = bullets["E1.2"]["text"].lower().index("docker")
+    assert [docker, docker + 6] in bullets["E1.2"]["hl"]  # matched keywords are highlighted in place
+    assert not any("authorized" in u for u in m["unshown_requirements"])  # eligibility lines aren't resume content
+
+
+def test_parse_jd_skips_company_names_and_intro_products():
+    jd = tailor.parse_jd("Robotics Intern", "GrayMatter Robotics builds GMR SuperCell for factories. "
+                         "Requirements: Experience with Python and ROS. Familiarity with GrayMatter tools.", company="GrayMatter Robotics")
+    terms = {k["term"] for k in jd["keywords"]}
+    assert {"Python", "ROS"} <= terms and not {"GrayMatter", "SuperCell", "GMR"} & terms

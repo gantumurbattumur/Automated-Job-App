@@ -171,7 +171,8 @@ LIST_INTRO = re.compile(r"(?:such as|including|e\.g\.,?|like|for example|experie
                         r"proficiency in|proficient in)\s+([^.;:]{3,200})", re.I)
 TECH_TOKEN = re.compile(r"(?<![\w-])(?:[A-Z][a-z]+[A-Z]\w*|[A-Za-z]+(?:\.js|#|\+\+)|[A-Z]{2,6}s?|\.NET)(?![\w-])")
 NOT_KEYWORDS = {"us", "usa", "eeo", "eoe", "hr", "ceo", "llc", "inc", "the", "and", "or", "it", "pto", "ada", "u.s", "id", "ii",
-                "iii", "ok", "faq", "new", "team", "you", "we", "our", "all", "etc", "ai/ml", "fte", "gpa", "nyc", "sf", "la"}
+                "iii", "ok", "faq", "new", "team", "you", "we", "our", "all", "etc", "ai/ml", "fte", "gpa", "nyc", "sf", "la",
+                "phd", "mba", "bs", "ms", "ba", "msc", "bsc"}
 
 
 def _list_terms(text: str) -> list[str]:
@@ -185,9 +186,12 @@ def _list_terms(text: str) -> list[str]:
     return terms
 
 
-def parse_jd(title: str, text: str) -> dict:
+def parse_jd(title: str, text: str, company: str = "") -> dict:
     secs = _split_sections(text or "")
+    # words of the company's own name ("GrayMatter", "GMR") aren't skills to put on a resume
+    own = {w.lower() for w in re.findall(r"[A-Za-z][\w.]+", company)} | {"".join(w[0] for w in company.split()).lower()}
     body = {k: v for k, v in secs.items() if k != "other"}
+    quals = {"required", "preferred"} & set(secs) or set(body)
     weights: dict[str, dict] = {}
 
     def add(term: str, canon: str, where: str, n: int = 1):
@@ -207,7 +211,11 @@ def parse_jd(title: str, text: str) -> dict:
         for names in relevance.skills_dict().values():
             for a in names:
                 rest = re.sub(rf"(?i)(?<!\w){re.escape(a)}(?!\w)", " ", rest)
+        if where not in quals:  # outside the qualifications, capitalized words are products and programs, not skills
+            continue
         for t in _list_terms(rest) + TECH_TOKEN.findall(rest):
+            if len(t) < 3 or t.lower() in own or any(t.lower().startswith(o) for o in own if len(o) > 3):
+                continue
             dotted = {a.split(".")[0] for names in relevance.skills_dict().values() for a in names if "." in a}  # "Node" of "Node.js"
             if t.lower() not in NOT_KEYWORDS and t.lower() not in dotted and not any(t.lower() in names for names in relevance.skills_dict().values()):
                 add(t, t, where)
@@ -343,6 +351,94 @@ def analyze(jd: dict, resume: dict, other_resume_text: str = "") -> dict:
     return {"score": score, "parts": {k: round(v * 100) for k, v in parts.items()}, "keywords": kws,
             "title": {"core": jd["title_core"], "hits": title_hit, "missing": [t for t in tokens if t not in title_hit], "phrase": phrase},
             "education": {**edu, "score": round(education * 100)}, "soft_skills": soft, "requirements": reqs, "years": jd["years"]}
+
+
+# --- resume map: where each missing keyword would fit ------------------------------
+
+NOT_RESUME = re.compile(r"authoriz|sponsor|citizen|available to start|start (?:no later|date)|relocat|background check|"
+                        r"drug (?:test|screen)|travel", re.I)  # eligibility lines, not resume content
+FITS = 0.62  # a missing keyword's job context reads this close to a bullet: that bullet is where it belongs (if true)
+
+
+def _aliases(term: str) -> list[str]:
+    return relevance.skills_dict().get(term.lower()) or next(
+        (n for n in relevance.skills_dict().values() if term.lower() in n), [term.lower()])
+
+
+def _spans(text: str, terms: list[str]) -> list[list[int]]:
+    """[start, end] of every whole-word hit of `terms` (or their aliases) in `text`, merged, for highlighting."""
+    hits = sorted([m.start(), m.end()] for t in terms for a in _aliases(t)
+                  for m in re.finditer(rf"(?i)(?<![\w.]){re.escape(a)}(?!\w)", text))  # not the ".js" of "Next.js"
+    out: list[list[int]] = []
+    for s, e in hits:
+        if out and s <= out[-1][1]:
+            out[-1][1] = max(out[-1][1], e)
+        else:
+            out.append([s, e])
+    return out
+
+
+def resume_map(jd: dict, resume: dict, a: dict) -> dict:
+    """Your resume laid out as it is, annotated for one job: matched keywords highlighted, the requirements each bullet
+    backs, and for each missing keyword the bullet or skills line it fits best — or "gap" when nothing supports it."""
+    have = [k["term"] for k in a["keywords"] if k["in_resume"]]
+    missing = [k for k in a["keywords"] if not k["in_resume"]][:15]
+    bullets = [b for e in resume["entries"] for b in e["bullets"]]
+    adds: dict[str, list] = {}  # bullet id / "skills:N" / "summary" -> [{term, why, fit}]
+    gaps = []
+    if missing:
+        # a keyword's meaning comes from the requirement that mentions it ("Docker" in "deploy services with Docker")
+        ctx = [next((r["text"] for r in jd["requirements"] if _present(k["term"], r["text"].lower())), k["term"]) for k in missing]
+        S = _embed(ctx) @ _embed([b["text"] for b in bullets]).T if bullets else None
+        # skills line: the one holding the most similar single skill ("Tableau" sits with "Pandas", not "Languages: …")
+        items = [(n, x.strip()) for n, line in enumerate(resume["skills"]) for x in re.split(r"[,;:|]", line) if len(x.strip()) > 1]
+        L = _embed([k["term"] for k in missing]) @ _embed([x for _, x in items]).T if items else None
+        for i, k in enumerate(missing):
+            why = ctx[i] if ctx[i] != k["term"] else ""
+            j = int(S[i].argmax()) if bullets else -1
+            sim = float(S[i, j]) if bullets else 0.0
+            item = {"term": k["term"], "why": why[:200], "weight": k["weight"], "other_resume": k["on_other_resume"]}
+            here = adds.setdefault(bullets[j]["id"], []) if sim >= FITS else None
+            if here is None:
+                gaps.append(item)
+            elif len(here) < 3:  # most important first; one bullet can't absorb a whole tool list (the skills line still has it)
+                here.append({**item, "fit": round(sim, 2)})
+            if L is not None:  # tools also belong in the skills section
+                adds.setdefault(f"skills:{items[int(L[i].argmax())][0]}", []).append(item)
+    supports: dict[str, list] = {}
+    for r in a["requirements"]:
+        if r["kind"] == "bullet" and r["status"] != "missing":
+            supports.setdefault(r["evidence"]["id"], []).append({"text": r["text"][:160], "status": r["status"]})
+    bul = lambda b: {"id": b["id"], "text": b["text"], "hl": _spans(b["text"], have),  # noqa: E731
+                     "supports": supports.get(b["id"], []), "adds": adds.get(b["id"], [])}
+    summary_adds = [{"term": t, "why": "job title word"} for t in a["title"]["missing"]] + \
+                   [{"term": s["skill"], "why": "soft skill the job asks for"} for s in a["soft_skills"] if not s["in_resume"]]
+    unshown = [r["text"][:200] for r in a["requirements"] if r["status"] == "missing" and r["kind"] == "bullet" and not r["terms"]
+               and not NOT_RESUME.search(r["text"])]
+    return {"summary": {"text": resume["summary"], "hl": _spans(resume["summary"], have), "adds": summary_adds},
+            "skills": [{"text": t, "hl": _spans(t, have), "adds": adds.get(f"skills:{n}", [])} for n, t in enumerate(resume["skills"])],
+            "entries": [{"id": e["id"], "section": e["section"], "header": e["header"], "bullets": [bul(b) for b in e["bullets"]]}
+                        for e in resume["entries"]],
+            "education": {"text": resume["education"], "hl": _spans(resume["education"], have)},
+            "gaps": gaps, "unshown_requirements": unshown[:6]}
+
+
+def job_fit(job_id: str) -> dict:
+    """ATS-style match + resume map for a job in the feed, against the resume that fits it best."""
+    from . import feed, resume, settings
+    from .models import Job, session
+    with session() as s:
+        j = s.get(Job, job_id)
+    if not j:
+        raise KeyError(job_id)
+    row = next((r for r in feed.build_cached(settings.get()) if r["id"] == job_id), {})
+    lane = row.get("best_lane") if row.get("best_lane") in resume.names() else resume.primary()
+    base = parse_resume(resume.text(lane))
+    jd = parse_jd(j.title, j.description or "", j.company)
+    a = analyze(jd, base, " ".join(t for n, t in resume.lane_texts().items() if n != lane))
+    return {"lane": lane, "score": a["score"], "parts": a["parts"], "has_description": bool(j.description),
+            "keywords": {"have": sum(k["in_resume"] for k in a["keywords"]), "total": len(a["keywords"])},
+            "map": resume_map(jd, base, a)}
 
 
 # --- suggestions (written by Claude, pasted back) --------------------------------
@@ -551,7 +647,7 @@ def report(item_id: str) -> dict:
     lane = _lane_for(item)
     base = parse_resume(resume.text(lane))
     other = " ".join(t for n, t in resume.lane_texts().items() if n != lane)
-    jd = parse_jd(item.title, item.jd_text)
+    jd = parse_jd(item.title, item.jd_text, item.company)
     now = analyze(jd, base, other)
     if item.baseline is None:
         item.baseline = now["score"]
@@ -574,13 +670,14 @@ def report(item_id: str) -> dict:
     return {"id": item.id, "job": job, "job_id": item.job_id, "lane": lane, "lanes": resume.names(),
             "lane_labels": {n: l.get("label") or n for n, l in resume.config()["lanes"].items()},
             "baseline": item.baseline, "now": now, "with_accepted": accepted, "with_all": everything,
-            "data": data, "resume": base, "prompt_ready": True, "sections_found": jd["sections_found"]}
+            "data": data, "resume": base, "map": resume_map(jd, base, now), "prompt_ready": True,
+            "sections_found": jd["sections_found"]}
 
 
 def prompt(item_id: str) -> str:
     rep = report(item_id)
     item = get(item_id)
-    jd = parse_jd(item.title, item.jd_text)
+    jd = parse_jd(item.title, item.jd_text, item.company)
     return build_prompt(rep["job"], jd, rep["resume"], rep["now"])
 
 

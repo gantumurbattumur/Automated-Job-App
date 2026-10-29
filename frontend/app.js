@@ -450,15 +450,31 @@ function renderDetail(j, full) {
         <div class="bars" style="margin-top:8px">${Object.entries(parts).map(([k, v]) => `<i style="width:${100 * v / total}%;background:var(${PARTS[k]?.[1] || '--faint'})" title="${PARTS[k]?.[0] || k}: ${v}"></i>`).join('')}</div>
         <div class="legend">${Object.entries(parts).map(([k, v]) => `<span><span class="sw" style="background:var(${PARTS[k]?.[1] || '--faint'})"></span>${PARTS[k]?.[0] || k}: <b>${v}</b></span>`).join('')}</div>
         <p class="tiny mut" style="margin:6px 0 0">Resume match = meaning ${Math.round((rp.semantic ?? 0) * 100)}% · skills ${Math.round((rp.skills ?? 0) * 100)}% · title ${Math.round((rp.title ?? 0) * 100)}%. ${j.cpt_label ? `CPT: ${esc(j.cpt_label)}.` : ''}</p>
-        ${(j.skills_missing || []).length ? `<p class="tiny" style="margin:6px 0 0">Skills it asks for that your resume lacks: ${j.skills_missing.slice(0, 10).map(x => `<span class="tag bad">${esc(x)}</span>`).join(' ')}</p>` : ''}
       </details>
     </div></div>
+    <div class="card" id="fitCard"><div class="hd"><h3>Resume fit</h3><button class="btn sm" id="fitToggle">${fitOpen ? 'Hide map' : 'Where to add keywords'}</button></div><div class="bd">
+      <div class="small">${(j.skills_matched || []).length ? `<span class="ok">✓ ${j.skills_matched.slice(0, 8).map(esc).join(', ')}</span>` : ''}
+        ${(j.skills_missing || []).length ? `<div style="margin-top:4px">Missing: ${j.skills_missing.slice(0, 10).map(x => `<span class="tag bad">${esc(x)}</span>`).join(' ')}</div>` : ''}</div>
+      <div id="fitBody">${fitOpen ? '<div class="small mut" style="margin-top:10px"><span class="spin"></span> Mapping your resume…</div>' : ''}</div></div></div>
     <div class="card"><div class="hd"><h3>Description</h3>${full?.description ? '<button class="btn sm ghost" id="moreDesc">Show all</button>' : ''}</div><div class="bd">
       ${full ? (full.description ? `<div class="desc" id="desc">${esc(full.description)}</div>` : '<p class="mut small" style="margin:0">Only the title is known so far — open the posting to read it.</p>') : '<span class="spin"></span>'}
       ${j.also?.length ? `<p class="small" style="margin:10px 0 0">Also listed on: ${j.also.map(a => `<a href="${esc(a.url)}" target="_blank" rel="noopener">${esc(SRC[a.source] || a.source)}</a>`).join(' · ')}</p>` : ''}
     </div></div>`;
   $$('#detail [data-act]').forEach(b => b.onclick = () => act(b.dataset.act, j, b));
+  $('#fitToggle').onclick = () => { fitOpen = !fitOpen; store.set('fitOpen', fitOpen); renderDetail(j, full); };
+  if (fitOpen && full) loadFit(j);
   if ($('#moreDesc')) $('#moreDesc').onclick = () => { $('#desc').classList.toggle('open'); $('#moreDesc').textContent = $('#desc').classList.contains('open') ? 'Show less' : 'Show all'; };
+}
+let fitOpen = store.get('fitOpen', false);
+async function loadFit(j) {
+  const c = detailCache[j.id] || {};
+  try { c.fit = c.fit || await api(`/jobs/${enc(j.id)}/fit`); } catch (e) { if (selected === j.id && $('#fitBody')) $('#fitBody').innerHTML = `<p class="small bad">${esc(e.message)}</p>`; return; }
+  if (selected !== j.id || !$('#fitBody')) return;
+  const f = c.fit;
+  $('#fitBody').innerHTML = `<div class="row between" style="margin:12px 0 8px"><span class="small"><b>ATS-style match ${Math.round(f.score)}%</b> · ${f.keywords.have} of ${f.keywords.total} job keywords · ${esc(laneLabel(f.lane))} resume</span>
+      <button class="btn sm primary" data-act="tailor">✎ Tailor with Claude</button></div>
+    ${f.has_description ? resumeMapHtml(f.map) : '<p class="small mut">No description saved for this job yet, so there is nothing to map.</p>'}`;
+  $$('#fitBody [data-act]').forEach(b => b.onclick = () => act('tailor', j));
 }
 async function setStatus(id, status, extra = {}) { await put(`/applications/${enc(id)}`, { status, ...extra }); }
 async function act(what, j, btn) {
@@ -743,6 +759,30 @@ async function refreshTailorList() {
   if ($('#tlist')) { $('#tlist').innerHTML = items.map(tailorCard).join(''); bindTailorList(); }
 }
 
+// ---------- resume map: your resume as it is, annotated for one job ----------
+const hlText = (t, hl) => { let o = '', i = 0; for (const [s, e] of hl || []) { o += esc(t.slice(i, s)) + `<mark>${esc(t.slice(s, e))}</mark>`; i = e; } return o + esc(t.slice(i)); };
+const addChip = x => `<span class="add-chip" title="${esc(x.why ? `The job: “${x.why}”` : '')}${x.other_resume ? ' · it is on your other resume' : ''}">+ ${esc(x.term)}${x.other_resume ? ' ↺' : ''}</span>`;
+function resumeMapHtml(m) {
+  const sec = (title, body) => `<div class="rm-sec"><div class="rm-h">${title}</div>${body}</div>`;
+  const adds = (xs, note = '') => xs.length ? `<div class="rm-adds">${xs.map(addChip).join('')}${note ? ` <span class="tiny mut">${note}</span>` : ''}</div>` : '';
+  let h = sec('Summary', `<p>${m.summary.text ? hlText(m.summary.text, m.summary.hl) : '<span class="mut">No summary — a one-line summary is a good place for the job’s title words.</span>'}</p>${adds(m.summary.adds)}`);
+  if (m.skills.length) h += sec('Skills', m.skills.map(l => `<div class="rm-line">${hlText(l.text, l.hl)}${adds(l.adds)}</div>`).join(''));
+  for (const [k, label] of [['experience', 'Experience'], ['projects', 'Projects'], ['other', 'Other']]) {
+    const es = m.entries.filter(e => e.section === k);
+    if (es.length) h += sec(label, es.map(e => `<div class="rm-entry"><div class="rm-eh">${esc(e.header)}</div><ul>${e.bullets.map(b => `<li>
+      <span class="rm-id">${esc(b.id)}</span>${hlText(b.text, b.hl)}${b.supports.length ? ` <span class="rm-sup" title="${esc(b.supports.map(s => `• ${s.text}`).join('\n'))}">backs ${b.supports.length} requirement${b.supports.length > 1 ? 's' : ''}</span>` : ''}
+      ${adds(b.adds, 'fits this bullet — work it in only if you used it here')}</li>`).join('')}</ul></div>`).join(''));
+  }
+  if (!m.skills.length && !m.entries.length) h += `<p class="small warn" style="margin-top:10px">Couldn’t find SKILLS / EXPERIENCE / PROJECTS headings with bullets in this resume, so there’s nothing to place keywords on. Use headings in capitals and ● bullets.</p>`;
+  if (m.education.text) h += sec('Education', `<p>${hlText(m.education.text, m.education.hl)}</p>`);
+  const gaps = m.gaps.length || m.unshown_requirements.length ? `<div class="rm-gaps"><b class="small">Nothing in your resume backs these</b>
+    ${m.gaps.length ? `<div class="tags" style="margin-top:4px">${m.gaps.map(g => `<span class="tag warn" title="${esc(g.why)}">${esc(g.term)}</span>`).join('')}</div>` : ''}
+    ${m.unshown_requirements.map(u => `<div class="tiny" style="margin-top:3px">• ${esc(u)}</div>`).join('')}
+    <div class="tiny mut" style="margin-top:6px">Add one only if it’s true (e.g. a project bullet). Otherwise it’s an honest gap — leave it.</div></div>` : '';
+  return `<div class="rm-legend tiny mut"><mark>green</mark> = keyword the job uses · <span class="add-chip">+ missing</span> = where it would fit (hover for the job’s wording) · <span class="rm-sup">backs N</span> = proves a requirement</div>
+    <div class="rmap">${h}</div>${gaps}`;
+}
+
 function renderTailorDetail(r) {
   const a = r.now, acc = r.with_accepted, all = r.with_all, d = r.data || {}, sug = d.suggestions || [];
   const missing = a.keywords.filter(k => !k.in_resume), present = a.keywords.filter(k => k.in_resume);
@@ -763,7 +803,7 @@ function renderTailorDetail(r) {
     <details style="margin-top:6px"><summary class="small mut">All ${a.requirements.length} requirements</summary><table class="t" style="margin-top:6px"><tbody>${a.requirements.map(reqRow).join('')}</tbody></table></details>
     <p class="small" style="margin:14px 0 0">Title words ${a.title.hits.map(t => `<span class="tag ok">${esc(t)}</span>`).join(' ')}${a.title.missing.map(t => `<span class="tag bad">${esc(t)}</span>`).join(' ')}
       · Soft skills ${a.soft_skills.map(x => `<span class="tag ${x.in_resume ? 'ok' : 'bad'}">${esc(x.skill)}</span>`).join(' ') || '<span class="mut">none asked</span>'}</p>
-    <div class="row" style="margin-top:16px"><button class="btn primary" data-tab="suggest">Next: get bullet suggestions →</button></div>`;
+    <div class="row" style="margin-top:16px"><button class="btn" data-tab="map">See where they fit in your resume</button><button class="btn primary" data-tab="suggest">Next: get bullet suggestions →</button></div>`;
   const suggestTab = `
     <div class="sug" style="background:var(--panel-2)">
       <div class="row between"><b class="small">1 · Ask Claude</b><button class="btn sm primary" id="tprompt">Copy prompt</button></div>
@@ -795,8 +835,9 @@ function renderTailorDetail(r) {
       <div><div class="big faint">90%</div><div class="small mut">target</div></div></div>
     ${meter(acc ? acc.score : a.score)}
     <div class="tabs"><button data-tab="match" class="${tailorTab === 'match' ? 'on' : ''}">Match</button>
+      <button data-tab="map" class="${tailorTab === 'map' ? 'on' : ''}">Resume map</button>
       <button data-tab="suggest" class="${tailorTab === 'suggest' ? 'on' : ''}">Suggestions${pending ? ` (${pending})` : ''}</button></div>
-    <div style="margin-top:14px">${tailorTab === 'match' ? matchTab : suggestTab}</div></div></div>`;
+    <div style="margin-top:14px">${tailorTab === 'match' ? matchTab : tailorTab === 'map' ? resumeMapHtml(r.map) : suggestTab}</div></div></div>`;
   $$('#tdetail [data-tab]').forEach(b => b.onclick = () => { tailorTab = b.dataset.tab; renderTailorDetail(r); });
   $('#tlane').onchange = async e => renderTailorDetail(await put(`/tailor/${enc(r.id)}`, { lane: e.target.value }));
   if ($('#tprompt')) $('#tprompt').onclick = async () => { const p = await api(`/tailor/${enc(r.id)}/prompt`); copyText(p.prompt, 'Prompt copied — paste it into Claude'); };
