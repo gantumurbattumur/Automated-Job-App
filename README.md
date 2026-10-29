@@ -34,13 +34,16 @@ soft skills 10%. It shows every missing keyword, each requirement with your clos
 keywords highlighted where you already have them, each missing keyword placed on the bullet or skills line it fits best
 (hover a chip to see the job's sentence), which bullets prove which requirements, and the gaps nothing in your resume
 supports — add those only if they're true.
-1. **✎ Tailor resume** on a job (or paste any description on the Tailor page).
-2. **Copy prompt** → paste into Claude (your plan) → paste Claude's JSON reply back → **Import & re-score**.
-   Or run `/tailor-resume` in Claude Code to do this for every job.
-3. Accept / reject / edit each suggested bullet; the score updates ("with accepted bullets"). Rewrites that would
-   drop a keyword you already have are flagged.
-4. **Copy accepted changes** gives plain text ("REPLACE … WITH …", "ADD …"). You edit your resume yourself —
-   JobPrep never creates resume files. Then upload the new version on the Resumes page.
+1. **✎ Tailor resume** on a job (or paste any description on the Tailor page). Claude starts writing right away.
+2. **✨ Write suggestions with Claude** runs Claude Code on this Mac with your own plan (`claude -p`, tools off, API
+   keys removed from its environment so it can never bill the paid API); 10–60 s. Model: Settings → Tailoring
+   (Sonnet by default). No Claude Code? "Or do it by hand" copies the prompt and takes the pasted reply, or run
+   `/tailor-resume` in Claude Code.
+3. **Review**: each suggestion shows before → after (click to edit), the keywords it adds, and anything it would drop.
+   Accept, skip, or **Accept all**.
+4. **Copy tailored resume** gives your whole resume as plain text with the accepted changes in place (or **Copy
+   changes only**). Paste it into your own document — JobPrep never creates resume files — then upload the new
+   version on the Resumes page.
 Suggestions must be true: the prompt forbids invented experience and lists what you can't claim as "gaps".
 
 Run in the background at login instead of a terminal: `scripts/install_service.sh` (undo: `scripts/uninstall_service.sh`).

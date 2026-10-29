@@ -102,6 +102,8 @@ const SETTINGS_GROUPS = [
     { k: 'refresh_simplify_minutes', t: 'num', l: 'SimplifyJobs list every (minutes)', h: 'Only in “every few minutes” mode. 0 = off', mode: 'interval' },
     { k: 'refresh_ats_minutes', t: 'num', l: 'Company job boards every (minutes)', h: 'Only in “every few minutes” mode. ~970 boards, ~200 MB per run', mode: 'interval' },
     { k: 'gmail_scan_minutes', t: 'num', l: 'Gmail scan every (minutes)', h: 'Only in “every few minutes” mode', mode: 'interval' }]],
+  ['Tailoring', 'Resume suggestions are written by Claude Code on your own plan — never the paid API.', [
+    { k: 'claude_model', t: 'select', l: 'Claude model', o: { sonnet: 'Sonnet (recommended — good and light on your plan limits)', opus: 'Opus (strongest, uses more of your limits)', haiku: 'Haiku (fastest)' } }]],
   ['Alerts', 'Mac notifications.', [
     { k: 'digest', t: 'bool', l: 'Notify me when the morning list is ready (top 10 new matches)' },
     { k: 'notify', t: 'bool', l: 'Also notify about each strong new match during a refresh', mode: 'interval' },
@@ -209,7 +211,7 @@ async function renderHome() {
     e.stopPropagation();
     const j = picks.find(x => x.id === b.dataset.id);
     if (b.dataset.hact === 'apply') return act('apply', j);
-    try { const r = await post('/tailor', { job_id: j.id }); tailorSel = r.id; go('tailor'); } catch (err) { toast(err.message); }
+    startTailor(j.id);
   });
 }
 function pickCard(j) {
@@ -479,9 +481,7 @@ async function loadFit(j) {
 async function setStatus(id, status, extra = {}) { await put(`/applications/${enc(id)}`, { status, ...extra }); }
 async function act(what, j, btn) {
   if (what === 'tailor') {
-    try { const r = await post('/tailor', { job_id: j.id }); tailorSel = r.id; go('tailor'); }
-    catch (e) { toast(e.message); }
-    return;
+    return startTailor(j.id);
   }
   if (what === 'apply') { window.open(j.url, '_blank', 'noopener'); await setStatus(j.id, 'opened', { source: 'apply_prompt' }); pending = j; return; }
   if (['saved', 'applied', 'dismissed'].includes(what)) {
@@ -717,13 +717,13 @@ const PART_LABEL = { hard_skills: 'Hard skills (keywords)', requirements: 'Requi
 const STATUS_TAG = { met: ['ok', '✓ met'], partial: ['warn', '◐ partial'], missing: ['bad', '✗ missing'] };
 const meter = (v, target = 90) => `<div class="meter"><i style="width:${Math.min(v, 100)}%" class="${v >= target ? 'ok' : v >= 70 ? 'mid' : ''}"></i><b style="left:${target}%"></b></div>`;
 
-let tailorTab = 'match', showAdd = false;
+let showAdd = false;
 async function renderTailor() {
   if (!$('#page-tailor').innerHTML.trim()) $('#page-tailor').innerHTML = LOADING;
   const { items, max } = await api('/tailor');
   if (!items.find(i => i.id === tailorSel)) tailorSel = items[0]?.id || null;
   $('#page-tailor').innerHTML = `
-    <div class="hero"><div><h1>Tailor your resume</h1><p>See what each job asks for that your resume doesn’t show, then get truthful bullet suggestions from Claude.</p></div>
+    <div class="hero"><div><h1>Tailor your resume</h1><p>Four steps per job: see what’s missing → Claude writes truthful suggestions → accept the ones you like → copy your tailored resume.</p></div>
       <div class="row"><span class="tag ${items.length >= max ? 'warn' : ''}">${items.length} / ${max} jobs</span><button class="btn primary" id="tadd" ${items.length >= max ? 'disabled' : ''}>+ Add a job</button></div></div>
     <div class="card ${showAdd ? '' : 'hidden'}" id="taddcard" style="margin-bottom:14px"><div class="bd">
       <p class="small mut" style="margin:0 0 8px">Tip: on the Jobs page, <b>✎ Tailor resume</b> adds a job in one click. For anything else, paste it here.</p>
@@ -737,7 +737,7 @@ async function renderTailor() {
   $('#tadd').onclick = () => { showAdd = !showAdd; $('#taddcard').classList.toggle('hidden', !showAdd); };
   $('#tcancel').onclick = () => { showAdd = false; $('#taddcard').classList.add('hidden'); };
   $('#tpaste').onsubmit = async e => { e.preventDefault(); const f = e.target;
-    try { const r = await post('/tailor', { company: f.company.value, title: f.title.value, url: f.url.value, jd_text: f.jd.value }); tailorSel = r.id; showAdd = false; tailorTab = 'match'; renderTailor(); }
+    try { const r = await post('/tailor', { company: f.company.value, title: f.title.value, url: f.url.value, jd_text: f.jd.value }); tailorSel = r.id; showAdd = false; renderTailor(); }
     catch (err) { toast(err.message); } };
   bindTailorList();
   if (tailorSel) renderTailorDetail(await api(`/tailor/${enc(tailorSel)}`));
@@ -748,10 +748,10 @@ function tailorCard(i) {
     <button class="btn sm ghost tdel" data-tdel="${esc(i.id)}" title="Remove">✕</button><b class="ttl">${esc(i.title)}</b>
     <div class="small mut">${esc(i.company)}</div>
     ${i.error ? `<p class="small bad">${esc(i.error)}</p>` : `<div class="row between small" style="margin-top:6px"><span><b>${Math.round(i.score)}%</b>${i.with_accepted != null && i.with_accepted !== i.score ? ` → <b class="ok">${Math.round(i.with_accepted)}%</b>` : ''}</span>
-      <span class="tiny faint">${i.suggestions ? `${i.accepted}/${i.suggestions} accepted` : 'no suggestions'}</span></div>${meter(v)}`}</div></div>`;
+      <span class="tiny faint">${i.run?.state === 'running' ? '<span class="spin"></span> Claude is writing' : i.suggestions ? `${i.accepted}/${i.suggestions} accepted` : 'no suggestions yet'}</span></div>${meter(v)}`}</div></div>`;
 }
 function bindTailorList() {
-  $$('[data-tsel]').forEach(c => c.onclick = e => { if (e.target.closest('[data-tdel]')) return; tailorSel = c.dataset.tsel; tailorTab = 'match'; renderTailor(); });
+  $$('[data-tsel]').forEach(c => c.onclick = e => { if (e.target.closest('[data-tdel]')) return; tailorSel = c.dataset.tsel; renderTailor(); });
   $$('[data-tdel]').forEach(b => b.onclick = async () => { if (!confirm('Remove this job from tailoring? Its suggestions are deleted.')) return; await del(`/tailor/${enc(b.dataset.tdel)}`); renderTailor(); });
 }
 async function refreshTailorList() {
@@ -783,50 +783,62 @@ function resumeMapHtml(m) {
     <div class="rmap">${h}</div>${gaps}`;
 }
 
+let tailorPoll, autoGen = null;
+const tailorOpen = { report: false, map: false };
+async function startTailor(jobId) {  // from Jobs / Home: add the job and have Claude start writing right away
+  try { const r = await post('/tailor', { job_id: jobId }); tailorSel = r.id; autoGen = r.id; go('tailor'); } catch (err) { toast(err.message); }
+}
 function renderTailorDetail(r) {
+  clearTimeout(tailorPoll);
   const a = r.now, acc = r.with_accepted, all = r.with_all, d = r.data || {}, sug = d.suggestions || [];
   const missing = a.keywords.filter(k => !k.in_resume), present = a.keywords.filter(k => k.in_resume);
   const weak = a.requirements.filter(q => q.status !== 'met');
-  const pending = sug.filter(x => x.status === 'pending').length;
+  const extras = [d.skills_to_add?.length ? d.skills_status : null, d.summary ? d.summary_status : null].filter(Boolean);
+  const pending = sug.filter(x => x.status === 'pending').length + extras.filter(x => x === 'pending').length;
+  const accepted = sug.filter(x => x.status === 'accepted').length + extras.filter(x => x === 'accepted').length;
+  const has = sug.length + extras.length > 0, running = r.run?.state === 'running';
+  if (autoGen === r.id && !has && !running) { autoGen = null; return generateFor(r.id); }
   const kwTag = k => `<span class="tag ${k.in_resume ? 'ok' : k.on_other_resume ? 'ac' : 'bad'}" title="${k.count}× in ${k.where.join(', ')}">${esc(k.term)}${k.weight >= 3 ? ' ★' : ''}${k.on_other_resume ? ' · other resume' : ''}</span>`;
   const reqRow = q => `<tr><td style="width:88px"><span class="tag ${STATUS_TAG[q.status][0]}">${STATUS_TAG[q.status][1]}</span></td><td>${esc(q.text)}
     ${q.kind === 'bullet' ? `<div class="tiny mut">closest bullet <b>${esc(q.evidence.id)}</b>: ${esc(q.evidence.text.slice(0, 120))}${q.evidence.text.length > 120 ? '…' : ''}</div>` : ''}
     ${q.missing_terms.length ? `<div class="tiny bad">needs: ${q.missing_terms.map(esc).join(', ')}</div>` : ''}</td></tr>`;
-  const matchTab = `
+  const report = `
     <div class="parts">${Object.entries(a.parts).map(([k, v]) => `<div><div class="row between small"><span>${PART_LABEL[k]}</span><b>${v}%${acc && acc.parts[k] !== v ? ` → <span class="ok">${acc.parts[k]}%</span>` : ''}</b></div>${meter(acc ? acc.parts[k] : v, 101)}</div>`).join('')}</div>
-    <h3 style="margin:18px 0 6px">Missing keywords <span class="mut small">(${missing.length} of ${a.keywords.length})</span></h3>
-    <div class="tags">${missing.slice(0, 12).map(kwTag).join('') || '<span class="small ok">Your resume has every keyword this job uses.</span>'}</div>
-    ${missing.length > 12 || present.length ? `<details style="margin-top:6px"><summary class="small mut">All keywords</summary><div class="tags" style="margin-top:6px">${[...missing, ...present].map(kwTag).join('')}</div></details>` : ''}
-    <p class="tiny faint" style="margin:6px 0 0">★ appears often or in required qualifications. Only add keywords that are true for you.</p>
-    <h3 style="margin:18px 0 6px">Requirements to strengthen <span class="mut small">(${weak.length} of ${a.requirements.length})</span></h3>
-    ${weak.length ? `<table class="t"><tbody>${weak.slice(0, 6).map(reqRow).join('')}</tbody></table>` : '<p class="small ok" style="margin:0">Every requirement is backed by a bullet.</p>'}
-    <details style="margin-top:6px"><summary class="small mut">All ${a.requirements.length} requirements</summary><table class="t" style="margin-top:6px"><tbody>${a.requirements.map(reqRow).join('')}</tbody></table></details>
-    <p class="small" style="margin:14px 0 0">Title words ${a.title.hits.map(t => `<span class="tag ok">${esc(t)}</span>`).join(' ')}${a.title.missing.map(t => `<span class="tag bad">${esc(t)}</span>`).join(' ')}
-      · Soft skills ${a.soft_skills.map(x => `<span class="tag ${x.in_resume ? 'ok' : 'bad'}">${esc(x.skill)}</span>`).join(' ') || '<span class="mut">none asked</span>'}</p>
-    <div class="row" style="margin-top:16px"><button class="btn" data-tab="map">See where they fit in your resume</button><button class="btn primary" data-tab="suggest">Next: get bullet suggestions →</button></div>`;
-  const suggestTab = `
-    <div class="sug" style="background:var(--panel-2)">
-      <div class="row between"><b class="small">1 · Ask Claude</b><button class="btn sm primary" id="tprompt">Copy prompt</button></div>
-      <p class="tiny mut" style="margin:4px 0 8px">Paste it into Claude (your plan), then paste Claude’s JSON reply here. Or run <code>/tailor-resume</code> in Claude Code.</p>
-      <textarea id="treply" rows="3" style="width:100%" placeholder='{"suggestions": [...]}'></textarea>
-      <div class="row" style="margin-top:6px"><button class="btn" id="timport">Import &amp; re-score</button>${sug.length ? `<span class="tiny mut">replaces the current ${sug.length}</span>` : ''}</div></div>
-    ${sug.length || d.summary || (d.skills_to_add || []).length ? `
-      <div class="row between" style="margin:16px 0 8px"><b class="small">2 · Review (${pending} left)</b>${all && acc && all.score !== acc.score ? `<span class="tiny mut">accepting the rest → ${Math.round(all.score)}%</span>` : ''}</div>
+    <h4 style="margin:14px 0 6px">All keywords</h4><div class="tags">${[...missing, ...present].map(kwTag).join('')}</div>
+    <p class="tiny faint" style="margin:6px 0 0">★ appears often or in required qualifications.</p>
+    <h4 style="margin:14px 0 6px">Requirements (${a.requirements.length})</h4><table class="t"><tbody>${a.requirements.map(reqRow).join('')}</tbody></table>
+    <p class="small" style="margin:12px 0 0">Title words ${a.title.hits.map(t => `<span class="tag ok">${esc(t)}</span>`).join(' ')}${a.title.missing.map(t => `<span class="tag bad">${esc(t)}</span>`).join(' ')}
+      · Soft skills ${a.soft_skills.map(x => `<span class="tag ${x.in_resume ? 'ok' : 'bad'}">${esc(x.skill)}</span>`).join(' ') || '<span class="mut">none asked</span>'}</p>`;
+  const decide = (sid, status) => status === 'pending'
+    ? `<button class="btn sm primary" data-dec="accepted" data-sid="${esc(sid)}">Accept</button><button class="btn sm" data-dec="rejected" data-sid="${esc(sid)}">Skip</button>`
+    : `<span class="tag ${status === 'accepted' ? 'ok' : ''}">${status === 'accepted' ? '✓ accepted' : 'skipped'}</span><button class="btn sm ghost" data-dec="pending" data-sid="${esc(sid)}">Undo</button>`;
+  const step = (n, title, body, state) => `<div class="tstep ${state}"><div class="tnum">${state === 'done' ? '✓' : n}</div><div class="grow"><h3>${title}</h3>${body}</div></div>`;
+  const s1 = `<p class="small" style="margin:0 0 6px">Your resume is missing <b>${missing.length}</b> of the job’s ${a.keywords.length} keywords, and <b>${weak.length}</b> of ${a.requirements.length} requirements aren’t clearly shown.</p>
+    <div class="tags">${missing.slice(0, 10).map(kwTag).join('') || '<span class="small ok">Every keyword is already there.</span>'}</div>`;
+  const s2 = (running ? `<p class="small" style="margin:0"><span class="spin"></span> Claude is reading the job and your resume — usually 30–90 seconds. You can keep using the app.</p>`
+    : `<div class="row"><button class="btn primary" id="tgen">✨ ${has ? 'Write new suggestions' : 'Write suggestions with Claude'}</button>
+        <span class="tiny mut">uses your Claude plan · rewrites your real bullets with the job’s wording; never invents experience</span></div>`)
+    + (r.run?.state === 'error' ? `<p class="small bad" style="margin:8px 0 0">Couldn’t get suggestions: ${esc(r.run.error)}</p>` : '')
+    + `<details class="tmanual"><summary class="tiny mut">Or do it by hand: copy the prompt, paste Claude’s reply</summary>
+        <div class="row" style="margin:8px 0 6px"><button class="btn sm" id="tprompt">Copy prompt</button><span class="tiny mut">or run <code>/tailor-resume</code> in Claude Code</span></div>
+        <textarea id="treply" rows="3" style="width:100%" placeholder='{"suggestions": [...]}'></textarea>
+        <div class="row" style="margin-top:6px"><button class="btn sm" id="timport">Import</button></div></details>`;
+  const s3 = has ? `<div class="row between" style="margin-bottom:8px"><span class="small">${pending ? `<b>${pending}</b> to review` : 'All reviewed'}${all && acc && all.score !== acc.score ? ` · accepting the rest → ${Math.round(all.score)}%` : ''}</span>
+        ${pending ? '<button class="btn sm" data-dec="accepted" data-sid="all">Accept all</button>' : ''}</div>
       <div class="stack">${sug.map(x => `<div class="sug ${x.status}">
-        <div class="row between small"><b>${x.type === 'rewrite' ? `Rewrite ${esc(x.target)}` : `New bullet${x.target ? ` · ${esc(x.target)}` : ''}`}</b><span class="mut">${esc(x.why)}</span></div>
-        ${x.original ? `<div class="del small">${esc(x.original)}</div>` : ''}
+        <div class="row between small"><b>${x.type === 'rewrite' ? `Reword bullet ${esc(x.target)}` : `Add a bullet${x.target ? ` under ${esc(x.target.split('.')[0])}` : ''}`}</b><span class="mut">${esc(x.why)}</span></div>
+        ${x.original ? `<div class="tiny mut" style="margin-top:4px">Before</div><div class="del small">${esc(x.original)}</div><div class="tiny mut">After <span class="faint">(click to edit)</span></div>` : ''}
         <div class="ins small" contenteditable="true" data-edit="${esc(x.id)}" title="Click to edit">${esc(x.text)}</div>
         <div class="row" style="margin-top:6px">${x.adds.length ? `<span class="tiny">adds ${x.adds.map(t => `<span class="tag ok">${esc(t)}</span>`).join(' ')}</span>` : ''}
-          ${x.removes.length ? `<span class="tiny bad">drops ${x.removes.map(esc).join(', ')}</span>` : ''}<span class="grow"></span>
-          ${x.status === 'pending' ? `<button class="btn sm primary" data-dec="accepted" data-sid="${esc(x.id)}">Accept</button><button class="btn sm" data-dec="rejected" data-sid="${esc(x.id)}">Reject</button>`
-            : `<span class="tag ${x.status === 'accepted' ? 'ok' : 'bad'}">${x.status}</span><button class="btn sm ghost" data-dec="pending" data-sid="${esc(x.id)}">Undo</button>`}</div></div>`).join('')}
-        ${(d.skills_to_add || []).length ? `<div class="sug ${d.skills_status}"><div class="row small"><b>Add to Skills:</b> ${d.skills_to_add.map(esc).join(', ')}<span class="grow"></span>
-          ${d.skills_status === 'pending' ? `<button class="btn sm primary" data-dec="accepted" data-sid="skills">Accept</button><button class="btn sm" data-dec="rejected" data-sid="skills">Reject</button>` : `<span class="tag">${d.skills_status}</span><button class="btn sm ghost" data-dec="pending" data-sid="skills">Undo</button>`}</div></div>` : ''}
-        ${d.summary ? `<div class="sug ${d.summary_status}"><div class="row small"><b>Summary</b><span class="grow"></span>
-          ${d.summary_status === 'pending' ? `<button class="btn sm primary" data-dec="accepted" data-sid="summary">Accept</button><button class="btn sm" data-dec="rejected" data-sid="summary">Reject</button>` : `<span class="tag">${d.summary_status}</span><button class="btn sm ghost" data-dec="pending" data-sid="summary">Undo</button>`}</div><div class="small">${esc(d.summary)}</div></div>` : ''}
-        ${(d.gaps || []).length ? `<p class="small" style="margin:0"><b>Can’t honestly claim:</b> ${d.gaps.map(g => `<span class="tag warn">${esc(g)}</span>`).join(' ')}</p>` : ''}</div>
-      <div class="row between sug" style="margin-top:16px;background:var(--panel-2)"><span class="small"><b>3 · Copy</b> <span class="mut">accepted changes as plain text, then edit your resume yourself</span></span>
-        <button class="btn sm primary" id="texport">Copy accepted changes</button></div>` : ''}`;
+          ${x.removes.length ? `<span class="tiny bad">drops ${x.removes.map(esc).join(', ')}</span>` : ''}<span class="grow"></span>${decide(x.id, x.status)}</div></div>`).join('')}
+        ${(d.skills_to_add || []).length ? `<div class="sug ${d.skills_status}"><div class="row small"><b>Add to Skills:</b>&nbsp;${d.skills_to_add.map(esc).join(', ')}<span class="grow"></span>${decide('skills', d.skills_status)}</div></div>` : ''}
+        ${d.summary ? `<div class="sug ${d.summary_status}"><div class="row small"><b>New summary</b><span class="grow"></span>${decide('summary', d.summary_status)}</div><div class="small">${esc(d.summary)}</div>
+          ${(d.summary_removes || []).length ? `<div class="tiny bad" style="margin-top:4px">drops ${d.summary_removes.map(esc).join(', ')} from your current summary — edit it back in or skip</div>` : ''}</div>` : ''}
+        ${(d.gaps || []).length ? `<p class="small" style="margin:0"><b>Can’t honestly claim:</b> ${d.gaps.map(g => `<span class="tag warn">${esc(g)}</span>`).join(' ')}</p>` : ''}</div>`
+    : '<p class="small mut" style="margin:0">Suggestions show up here, each as before → after.</p>';
+  const s4 = accepted ? `<div class="row"><button class="btn primary" id="tfull">Copy tailored resume</button><button class="btn" id="texport">Copy changes only</button></div>
+      <p class="tiny mut" style="margin:6px 0 0">Plain text with your accepted changes in place. Paste it into your resume document, format it there, then upload the new version on <a href="#resumes">Resumes</a>.</p>`
+    : '<p class="small mut" style="margin:0">Accept at least one suggestion first.</p>';
   $('#tdetail').innerHTML = `<div class="card"><div class="bd">
     <div class="row between"><div><div class="small mut">${esc(r.job.company)}${r.job.url ? ` · <a href="${esc(r.job.url)}" target="_blank" rel="noopener">posting ↗</a>` : ''}</div><div class="title">${esc(r.job.title)}</div></div>
       <select id="tlane" style="width:auto" title="Resume to tailor">${r.lanes.map(l => `<option value="${esc(l)}" ${l === r.lane ? 'selected' : ''}>${esc(r.lane_labels[l] || l)} resume</option>`).join('')}</select></div>
@@ -834,14 +846,20 @@ function renderTailorDetail(r) {
       ${acc ? `<div><div class="big ok">${Math.round(acc.score)}%</div><div class="small mut">with accepted bullets</div></div>` : ''}
       <div><div class="big faint">90%</div><div class="small mut">target</div></div></div>
     ${meter(acc ? acc.score : a.score)}
-    <div class="tabs"><button data-tab="match" class="${tailorTab === 'match' ? 'on' : ''}">Match</button>
-      <button data-tab="map" class="${tailorTab === 'map' ? 'on' : ''}">Resume map</button>
-      <button data-tab="suggest" class="${tailorTab === 'suggest' ? 'on' : ''}">Suggestions${pending ? ` (${pending})` : ''}</button></div>
-    <div style="margin-top:14px">${tailorTab === 'match' ? matchTab : tailorTab === 'map' ? resumeMapHtml(r.map) : suggestTab}</div></div></div>`;
-  $$('#tdetail [data-tab]').forEach(b => b.onclick = () => { tailorTab = b.dataset.tab; renderTailorDetail(r); });
+    <div class="tsteps">
+      ${step(1, 'What’s missing', s1, 'done')}
+      ${step(2, 'Get suggestions', s2, has && !running ? 'done' : 'now')}
+      ${step(3, 'Review', s3, has ? (pending ? 'now' : 'done') : '')}
+      ${step(4, 'Copy your tailored resume', s4, accepted ? 'now' : '')}
+    </div>
+    <details class="tmore" data-open="report" ${tailorOpen.report ? 'open' : ''}><summary class="small"><b>Full match report</b></summary>${report}</details>
+    <details class="tmore" data-open="map" ${tailorOpen.map ? 'open' : ''}><summary class="small"><b>Resume map</b> — where each keyword fits</summary><div style="margin-top:8px">${resumeMapHtml(r.map)}</div></details>
+  </div></div>`;
+  $$('#tdetail details[data-open]').forEach(x => x.ontoggle = () => { tailorOpen[x.dataset.open] = x.open; });
   $('#tlane').onchange = async e => renderTailorDetail(await put(`/tailor/${enc(r.id)}`, { lane: e.target.value }));
-  if ($('#tprompt')) $('#tprompt').onclick = async () => { const p = await api(`/tailor/${enc(r.id)}/prompt`); copyText(p.prompt, 'Prompt copied — paste it into Claude'); };
-  if ($('#timport')) $('#timport').onclick = async () => {
+  if ($('#tgen')) $('#tgen').onclick = () => generateFor(r.id);
+  $('#tprompt').onclick = async () => { const p = await api(`/tailor/${enc(r.id)}/prompt`); copyText(p.prompt, 'Prompt copied — paste it into Claude'); };
+  $('#timport').onclick = async () => {
     try { renderTailorDetail(await post(`/tailor/${enc(r.id)}/suggestions`, { text: $('#treply').value })); toast('Imported — review each suggestion'); refreshTailorList(); }
     catch (e) { toast(e.message); } };
   $$('#tdetail [data-dec]').forEach(b => b.onclick = async () => {
@@ -849,7 +867,19 @@ function renderTailorDetail(r) {
     renderTailorDetail(await put(`/tailor/${enc(r.id)}/suggestions/${enc(b.dataset.sid)}`, { status: b.dataset.dec, text: box ? box.innerText.trim() : null }));
     refreshTailorList();
   });
-  if ($('#texport')) $('#texport').onclick = async () => copyText(await api(`/tailor/${enc(r.id)}/export`), 'Accepted changes copied as text');
+  if ($('#tfull')) $('#tfull').onclick = async () => copyText(await api(`/tailor/${enc(r.id)}/export?full=true`), 'Tailored resume copied as text');
+  if ($('#texport')) $('#texport').onclick = async () => copyText(await api(`/tailor/${enc(r.id)}/export`), 'Changes copied as text');
+  if (running) tailorPoll = setTimeout(async () => {  // keep checking while Claude writes, only while this job is on screen
+    if (tailorSel !== r.id || $('#page-tailor').classList.contains('hidden')) return;
+    const next = await api(`/tailor/${enc(r.id)}`);
+    if (tailorSel !== r.id) return;
+    renderTailorDetail(next);
+    if (next.run?.state !== 'running') { refreshTailorList(); if (next.run?.state === 'done') toast('Suggestions ready — review them below'); }
+  }, 3000);
+}
+async function generateFor(id) {
+  try { await post(`/tailor/${enc(id)}/generate`); renderTailorDetail(await api(`/tailor/${enc(id)}`)); refreshTailorList(); }
+  catch (e) { toast(e.message); renderTailorDetail(await api(`/tailor/${enc(id)}`)); }
 }
 
 // ---------- SETTINGS ----------

@@ -6,8 +6,14 @@ Writing new bullets is left to Claude (your plan) via a generated prompt; the an
 Nothing here produces resume files: suggestions are text you review and copy yourself.
 """
 import json
+import os
 import re
+import shutil
+import subprocess
+import threading
+import time
 from functools import lru_cache
+from pathlib import Path
 
 import numpy as np
 
@@ -472,9 +478,13 @@ MY RESUME BULLETS (ids are stable; refer to them):
 MY SKILLS SECTION:
 {chr(10).join(resume['skills'])}
 
+MY CURRENT SUMMARY:
+{resume['summary'] or '(none)'}
+
 Rewrite or add bullets so the resume shows the job's keywords and requirements where my experience supports them.
 Rules: start with a strong action verb; keep my real numbers; one line (<= 30 words); no buzzword stuffing; at most
-8 suggestions; prefer rewriting existing bullets over adding new ones.
+8 suggestions; prefer rewriting existing bullets over adding new ones. A rewrite or a new summary must keep every
+keyword the original already has (e.g. "machine learning") — only add, never lose.
 
 Reply with JSON only, exactly in this shape:
 {{"suggestions": [
@@ -553,6 +563,67 @@ def export_text(job: dict, resume: dict, data: dict) -> str:
     if data.get("skills_to_add") and data.get("skills_status") == "accepted":
         out += ["SKILLS — add: " + ", ".join(data["skills_to_add"]), ""]
     return "\n".join(out).strip() + "\n"
+
+
+def tailored_text(r: dict) -> str:
+    """The whole resume as plain text with the accepted changes in place — to paste into your own document."""
+    out = [r["header"], ""] if r["header"] else []
+    if r["summary"]:
+        out += ["SUMMARY", r["summary"], ""]
+    if r["skills"]:
+        out += ["SKILLS", *r["skills"], ""]
+    for sec in ("experience", "projects", "other"):
+        es = [e for e in r["entries"] if e["section"] == sec]
+        if es:
+            out.append(sec.upper())
+            for e in es:
+                out += [e["header"], *(f"● {b['text']}" for b in e["bullets"]), ""]
+    if r["education"]:
+        out += ["EDUCATION", r["education"]]
+    return "\n".join(out).strip() + "\n"
+
+
+# --- one click: Claude Code on your own plan writes the suggestions ----------------
+
+_runs: dict[str, dict] = {}  # item id -> {state: running | done | error, error, started}
+
+
+def claude_cli() -> str | None:
+    found = shutil.which("claude") or Path.home() / ".local" / "bin" / "claude"
+    return str(found) if Path(found).exists() else None
+
+
+def generate(item_id: str, model: str = "sonnet") -> dict:
+    """Start writing suggestions in the background (30-90 s); the report's `run` says when it's done."""
+    if not get(item_id):
+        raise KeyError(item_id)
+    if not claude_cli():
+        raise ValueError("Claude Code isn't installed on this Mac — use “copy the prompt” instead")
+    if _runs.get(item_id, {}).get("state") != "running":
+        _runs[item_id] = {"state": "running", "started": time.time()}
+        threading.Thread(target=_generate, args=(item_id, model), name="jobprep-tailor", daemon=True).start()
+    return _runs[item_id]
+
+
+def _generate(item_id: str, model: str) -> None:
+    # without API keys in its environment Claude Code signs in with your plan, so this never bills the paid API
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("ANTHROPIC_", "CLAUDE_CODE_USE_"))}
+    try:
+        p = subprocess.run([claude_cli(), "-p", "--tools", "", "--output-format", "json", "--no-session-persistence",
+                            "--model", model], input=prompt(item_id), capture_output=True, text=True, timeout=300,
+                           env=env, cwd=str(ROOT / "data"))
+        try:
+            out = json.loads(p.stdout)
+        except json.JSONDecodeError:
+            raise RuntimeError((p.stderr or p.stdout or "no reply").strip()[-300:])
+        if p.returncode or out.get("is_error"):
+            raise RuntimeError(str(out.get("result") or p.stderr or "Claude Code failed")[:300])
+        import_suggestions(item_id, out["result"])
+        _runs[item_id] = {"state": "done"}
+    except subprocess.TimeoutExpired:
+        _runs[item_id] = {"state": "error", "error": "Claude took longer than 5 minutes — try again"}
+    except Exception as e:  # shown on the page; the copy-paste route still works
+        _runs[item_id] = {"state": "error", "error": str(e)[:300]}
 
 
 # --- tailoring list (up to 10 jobs) ---------------------------------------------
@@ -666,11 +737,15 @@ def report(item_id: str) -> dict:
             lost = [k["term"] for k in now["keywords"] if k["in_resume"] and not _present(k["term"], after)]
             lost += [x["skill"] for x in now["soft_skills"] if x["in_resume"] and not _soft_in(x["skill"], after)]
             sug["removes"] = lost
+    if data.get("summary"):  # a new summary replaces the old one: flag what it would lose, like bullet rewrites
+        after = base_low.replace(base["summary"].lower(), data["summary"].lower()) if base["summary"] else base_low
+        data["summary_removes"] = [k["term"] for k in now["keywords"] if k["in_resume"] and not _present(k["term"], after)] + \
+            [x["skill"] for x in now["soft_skills"] if x["in_resume"] and not _soft_in(x["skill"], after)]
     job = {"title": item.title, "company": item.company, "url": item.url}
     return {"id": item.id, "job": job, "job_id": item.job_id, "lane": lane, "lanes": resume.names(),
             "lane_labels": {n: l.get("label") or n for n, l in resume.config()["lanes"].items()},
             "baseline": item.baseline, "now": now, "with_accepted": accepted, "with_all": everything,
-            "data": data, "resume": base, "map": resume_map(jd, base, now), "prompt_ready": True,
+            "data": data, "resume": base, "map": resume_map(jd, base, now), "prompt_ready": True, "run": _runs.get(item.id),
             "sections_found": jd["sections_found"]}
 
 
@@ -700,7 +775,13 @@ def decide(item_id: str, sug_id: str, status: str, text: str | None = None) -> d
     if not item:
         raise KeyError(item_id)
     data = json.loads(json.dumps(item.data or {}))
-    if sug_id in ("skills", "summary"):
+    if sug_id == "all":  # accept everything still pending
+        for sug in data.get("suggestions", []):
+            sug["status"] = "accepted" if sug["status"] == "pending" else sug["status"]
+        for k in ("skills", "summary"):
+            if data.get(f"{k}_status", "pending") == "pending":
+                data[f"{k}_status"] = "accepted"
+    elif sug_id in ("skills", "summary"):
         data[f"{sug_id}_status"] = status
     else:
         for sug in data.get("suggestions", []):
@@ -716,6 +797,8 @@ def decide(item_id: str, sug_id: str, status: str, text: str | None = None) -> d
     return report(item_id)
 
 
-def export(item_id: str) -> str:
+def export(item_id: str, full: bool = False) -> str:
     rep = report(item_id)
+    if full:
+        return tailored_text(apply_suggestions(rep["resume"], rep["data"], ("accepted",)))
     return export_text(rep["job"], rep["resume"], rep["data"])

@@ -75,6 +75,8 @@ class Settings(BaseModel):
     freshness_half_life_days: float = 5
     new_badge_hours: int = 48
     allow_boost: float = 10
+    # tailoring: suggestions are written by Claude Code on your own plan (never the paid API)
+    claude_model: Literal["sonnet", "opus", "haiku"] = "sonnet"
     # refresh & alerts
     schedule: Literal["daily", "interval"] = "daily"  # daily: everything once a morning; interval: the minute settings below
     daily_time: str = Field("06:00", pattern=r"^([01]\d|2[0-3]):[0-5]\d$")  # local time

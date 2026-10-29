@@ -246,3 +246,14 @@ table.t tr:last-child td { border-bottom: 0; } table.t td.k { color: var(--mut);
 .rm-id { font: 10px ui-monospace, monospace; color: var(--faint); margin-right: 6px; }
 .rm-legend { margin-bottom: 8px; line-height: 1.8; }
 .rm-gaps { margin-top: 10px; padding: 10px 12px; border-radius: var(--r); background: var(--warn-soft); }
+
+/* ---------- tailor steps ---------- */
+.tsteps { margin-top: 16px; display: flex; flex-direction: column; }
+.tstep { display: flex; gap: 12px; padding: 12px 0; border-top: 1px solid var(--bd); }
+.tstep h3 { margin: 2px 0 8px; } .tstep:not(.now):not(.done) { opacity: .6; }
+.tnum { flex: none; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: 13px;
+  border: 2px solid var(--bd-strong); color: var(--mut); }
+.tstep.now .tnum { border-color: var(--ac); background: var(--ac); color: var(--ac-fg); }
+.tstep.done .tnum { border-color: var(--ok); background: var(--ok-soft); color: var(--ok); }
+.tmanual { margin-top: 10px; } .tmore { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--bd); }
+.tmore > summary { cursor: pointer; } .tmore[open] > summary { margin-bottom: 8px; }

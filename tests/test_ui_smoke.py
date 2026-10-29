@@ -182,23 +182,28 @@ def test_ui_end_to_end(server):
         page.fill("#tpaste [name=jd]", jd)
         page.click("#tpaste button")
         page.wait_for_selector("#tdetail >> text=match now", timeout=120000)
-        assert "Kubernetes" in page.inner_text("#tdetail") and "Requirements" in page.inner_text("#tdetail")
+        assert "Kubernetes" in page.inner_text("#tdetail") and "requirements aren’t clearly shown" in page.inner_text("#tdetail")
         item = httpx.get(f"{server}/tailor").json()["items"][0]
         assert "truthful" in httpx.get(f"{server}/tailor/{item['id']}/prompt").json()["prompt"]
         reply = '{"suggestions": [{"type": "new", "target": "", "text": "Containerized PyTorch model services with Docker and Kubernetes for repeatable deploys.", "keywords": ["Kubernetes"], "why": "preferred"}], "skills_to_add": [], "summary": "", "gaps": ["Kafka"]}'
-        page.click("#tdetail .tabs [data-tab=map]")
+        assert "Write suggestions with Claude" in page.inner_text("#tdetail")  # step 2: one click (Claude Code isn't run in tests)
+        page.click("#tdetail details[data-open=map] summary")
         page.wait_for_selector("#tdetail .rmap")
         assert "+ Kubernetes" in page.inner_text("#tdetail") or "Kubernetes" in page.inner_text("#tdetail .rm-gaps")
-        page.click("#tdetail .tabs [data-tab=suggest]")
+        page.click("#tdetail .tmanual summary")  # the by-hand route: paste Claude's reply
         page.fill("#treply", reply)
         page.click("#timport")
-        page.wait_for_selector("#tdetail >> text=Review (")
-        page.click("#tdetail [data-dec=accepted]")
-        page.wait_for_selector("#tdetail >> text=with accepted bullets")
+        page.wait_for_selector("#tdetail >> text=1 to review")
+        assert page.is_visible("#tdetail details[data-open=map] .rmap")  # stays open across re-renders
+        page.click("#tdetail [data-dec=accepted][data-sid=all]")
+        page.wait_for_selector("#tdetail >> text=✓ accepted")
+        assert page.is_visible("#tfull") and "with accepted bullets" in page.inner_text("#tdetail")
         after = httpx.get(f"{server}/tailor").json()["items"][0]
         assert after["with_accepted"] > after["score"] and after["accepted"] == 1
         export = httpx.get(f"{server}/tailor/{item['id']}/export").text
         assert "ADD: Containerized PyTorch" in export and "%PDF" not in export
+        full = httpx.get(f"{server}/tailor/{item['id']}/export", params={"full": "true"}).text
+        assert "● Containerized PyTorch" in full and "%PDF" not in full  # the whole resume as text, changes in place
 
         # inbox: role + company read from the email, one-click best match moves it into the tracker
         page.click("#nav [data-page=inbox]")

@@ -188,3 +188,36 @@ def test_parse_jd_skips_company_names_and_intro_products():
                          "Requirements: Experience with Python and ROS. Familiarity with GrayMatter tools.", company="GrayMatter Robotics")
     terms = {k["term"] for k in jd["keywords"]}
     assert {"Python", "ROS"} <= terms and not {"GrayMatter", "SuperCell", "GMR"} & terms
+
+
+def test_generate_runs_claude_code_on_your_plan_not_the_api(monkeypatch, tmp_path):
+    """One click: the prompt goes to the local `claude` CLI; API keys are stripped so it can only use your plan."""
+    fake = tmp_path / "claude"
+    fake.write_text('#!/bin/sh\nprompt=$(cat)\nkey=${ANTHROPIC_API_KEY:-none}\n'
+                    'printf \'{"is_error": false, "result": "{\\\\"suggestions\\\\": [], \\\\"gaps\\\\": [\\\\"%s|%s|%s\\\\"]}"}\' '
+                    '"$prompt" "$key" "$*"\n')
+    fake.chmod(0o755)
+    seen = {}
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-should-never-be-used")
+    monkeypatch.setattr(tailor, "claude_cli", lambda: str(fake))
+    monkeypatch.setattr(tailor, "prompt", lambda item_id: "THE PROMPT")
+    monkeypatch.setattr(tailor, "import_suggestions", lambda item_id, raw: seen.update(id=item_id, raw=raw))
+    tailor._generate("job1", "sonnet")
+    assert tailor._runs["job1"] == {"state": "done"} and seen["id"] == "job1"
+    prompt, key, args = json.loads(seen["raw"])["gaps"][0].split("|")
+    assert prompt == "THE PROMPT" and key == "none"  # no API key reaches Claude Code
+    assert "--tools" in args and "--model sonnet" in args and "-p" in args
+
+    fake.write_text('#!/bin/sh\necho \'{"is_error": true, "result": "Usage limit reached"}\'\nexit 1\n')
+    tailor._generate("job1", "sonnet")
+    assert tailor._runs["job1"]["state"] == "error" and "Usage limit" in tailor._runs["job1"]["error"]
+
+
+def test_tailored_text_is_the_whole_resume_with_changes():
+    r = tailor.parse_resume(RESUME)
+    d = {"suggestions": [{"id": "s1", "type": "rewrite", "target": "E1.2", "text": "Deployed PyTorch services with Docker and AWS.",
+                          "status": "accepted"}]}
+    text = tailor.tailored_text(tailor.apply_suggestions(r, d))
+    assert text.index("SUMMARY") < text.index("SKILLS") < text.index("EXPERIENCE") < text.index("PROJECTS") < text.index("EDUCATION")
+    assert "● Deployed PyTorch services with Docker and AWS." in text and "Deployed services using Docker and AWS, collab" not in text
+    assert "Profile RAG" in text and "Whitworth" in text

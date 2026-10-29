@@ -364,7 +364,7 @@ def tailor_list():
                     "baseline": r["baseline"], "score": r["now"]["score"],
                     "with_accepted": r["with_accepted"]["score"] if r["with_accepted"] else None,
                     "with_all": r["with_all"]["score"] if r["with_all"] else None,
-                    "suggestions": len(sug), "accepted": sum(x["status"] == "accepted" for x in sug)})
+                    "suggestions": len(sug), "accepted": sum(x["status"] == "accepted" for x in sug), "run": r["run"]})
     return {"items": out, "max": tailor.MAX_ITEMS}
 
 
@@ -412,8 +412,15 @@ def tailor_remove(item_id: str):
 
 
 @app.get("/tailor/{item_id}/export")
-def tailor_export(item_id: str):
-    return Response(_tailor(lambda: tailor.export(item_id)), media_type="text/plain; charset=utf-8")
+def tailor_export(item_id: str, full: bool = False):
+    """Accepted changes as text: "REPLACE … WITH …" lines, or (full=true) the whole resume with them in place."""
+    return Response(_tailor(lambda: tailor.export(item_id, full)), media_type="text/plain; charset=utf-8")
+
+
+@app.post("/tailor/{item_id}/generate")
+def tailor_generate(item_id: str):
+    """Claude Code (your plan) writes the suggestions in the background; poll GET /tailor/{id} for `run`."""
+    return _tailor(lambda: tailor.generate(item_id, settings.get().claude_model))
 
 
 class GmailConnect(BaseModel):
