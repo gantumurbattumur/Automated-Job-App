@@ -18,10 +18,8 @@
   <nav class="nav" id="nav">
     <button data-page="home"><span class="ico">⌂</span>Home</button>
     <button data-page="jobs"><span class="ico">☰</span>Jobs</button>
-    <button data-page="tracker"><span class="ico">▦</span>Tracker</button>
-    <button data-page="inbox"><span class="ico">✉</span>Inbox<span class="count hidden" id="inboxCount"></span></button>
+    <button data-page="tracker"><span class="ico">▦</span>Tracker<span class="count hidden" id="inboxCount" title="Job emails to review"></span></button>
     <button data-page="tailor"><span class="ico">✎</span>Tailor</button>
-    <button data-page="resumes"><span class="ico">▤</span>Resumes</button>
     <button data-page="settings"><span class="ico">⚙</span>Settings</button>
     <div class="sep"></div>
     <div class="foot">Local &amp; free · data stays on this Mac</div>
@@ -30,27 +28,25 @@
   <main class="main" id="main">
     <section id="page-home"></section>
     <section id="page-jobs" class="hidden">
-      <div class="quickbar" id="quickbar"></div>
+      <div class="searchbar">
+        <label class="sb-in"><span class="sb-ico">🔍</span><input type="text" id="q" placeholder="Search title or company"></label>
+        <div class="sb-in" id="nearbox"></div>
+      </div>
+      <div class="pills" id="quickbar"></div>
       <div class="jobs2">
         <div class="results">
-          <div class="bar">
-            <input type="text" id="q" placeholder="Search title, company, location…">
-            <select id="sort" style="width:auto" title="Sort">
+          <div class="row between small mut res-hd"><span id="counts"></span>
+            <label class="row" style="gap:6px">Sort <select id="sort" class="pill" title="Sort">
               <option value="score">Best match</option><option value="new">Newest</option>
-              <option value="relevance">Most relevant</option><option value="deadline">Deadline soonest</option><option value="nearest">Nearest</option>
-            </select>
-          </div>
-          <div class="row between small mut" style="margin-bottom:6px">
-            <span id="counts"></span>
-            <label class="check small"><input type="checkbox" id="showHidden"> show hidden</label>
-          </div>
-          <div class="active-filters" id="activeFilters"></div>
+              <option value="relevance">Resume match</option><option value="deadline">Deadline soonest</option><option value="nearest">Nearest</option>
+            </select></label></div>
           <div class="list" id="list" tabindex="0"></div>
         </div>
         <div class="detail" id="detail"></div>
       </div>
       <div class="drawer hidden" id="drawer">
         <div class="row between drawer-hd"><b>All filters</b><button class="btn sm ghost" id="drawerClose">✕ Close</button></div>
+        <label class="check small" style="margin:0 0 10px"><input type="checkbox" id="showHidden"> Show hidden jobs too (with the reason)</label>
         <aside class="filters" id="filters"></aside>
       </div>
     </section>

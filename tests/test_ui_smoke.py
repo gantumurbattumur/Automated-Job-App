@@ -85,19 +85,15 @@ def test_ui_end_to_end(server):
         assert any("Machine Learning Intern" in t for t in titles)
         assert not any("Software Engineering Intern" in t for t in titles)  # citizenship required -> hidden
         page.locator("#list .job", has_text="Machine Learning Intern").click()
-        page.wait_for_selector("#detail >> text=Why ")
+        page.wait_for_selector("#detail >> text=How you match")
         page.wait_for_selector("#detail >> text=Tailor resume")
         glance = page.inner_text("#detail .glance")
-        assert "CPT friendly" in glance and "Dec 1" in glance  # at-a-glance chips: CPT + deadline (shown as a date, not shifted a day)
-
-        # resume fit: the map shows your resume with the job's keywords placed (opened state is remembered)
-        page.click("#fitToggle")
-        page.wait_for_selector("#fitBody .rmap", timeout=60000)
-        fit = page.inner_text("#fitBody")
-        assert "ATS-style match" in fit and "SUMMARY" in fit
-        assert "Couldn’t find SKILLS" in fit  # the scratch resume has no headings: say so instead of an empty map
-        page.click("#fitToggle")
-        assert not page.is_visible("#fitBody .rmap")
+        assert "CPT friendly" in glance and "Dec 1" in glance  # at-a-glance pills: CPT + deadline (shown as a date, not shifted a day)
+        assert "Ranked here for:" in page.inner_text("#detail") and "% match" in page.inner_text("#list .job.sel")
+        assert not page.is_visible("#detail [data-act=dismissed]")  # rarely used actions sit in the ⋯ menu
+        page.click("#detail .menu summary")
+        assert page.is_visible("#detail [data-act=dismissed]")
+        page.click("#detail .menu summary")
 
         # narrow window: one pane at a time — clicking a job shows it, "All jobs" goes back
         page.set_viewport_size({"width": 800, "height": 900})
@@ -112,21 +108,25 @@ def test_ui_end_to_end(server):
         page.wait_for_selector("#list .job")
         page.set_viewport_size({"width": 1280, "height": 900})
 
-        # show hidden explains why
+        # filter pills persist; "All filters" shows how many drawer filters are changed; show hidden explains why
+        page.locator("[data-q=posted]").select_option("1")
+        page.wait_for_timeout(1500)  # filter saves are debounced
+        assert httpx.get(f"{server}/settings").json()["posted_within_days"] == 1
+        assert "on" in page.get_attribute("[data-q=posted]", "class")
+        page.locator("[data-q=posted]").select_option("0")
+        page.click("[data-q=remote]")
+        page.wait_for_timeout(1500)
+        assert httpx.get(f"{server}/settings").json()["work_modes"] == ["remote"]
+        page.click("[data-q=remote]")
+        page.wait_for_timeout(1500)
+        page.click("#moreFilters")
         page.check("#showHidden")
         page.wait_for_selector("#list .job.is-hidden")
         assert "citizenship" in page.inner_text("#list")
         page.uncheck("#showHidden")
-
-        # quick filter bar persists; drawer filters show an "also filtering by" chip that resets
-        page.locator("[data-q=posted]").select_option("1")
-        page.wait_for_timeout(1500)  # filter saves are debounced
-        assert httpx.get(f"{server}/settings").json()["posted_within_days"] == 1
-        page.locator("[data-q=posted]").select_option("0")
-        page.click("#moreFilters")
         page.locator("#filters input[data-k=hide_expired]").uncheck()
-        page.wait_for_selector("#activeFilters .tag")
-        page.locator("#activeFilters [data-reset]").first.click()
+        page.wait_for_selector("#moreFilters >> text=All filters (1)")
+        page.locator("#filters input[data-k=hide_expired]").check()
         page.wait_for_timeout(1500)
         assert httpx.get(f"{server}/settings").json()["hide_expired"] is True
         page.click("#drawerClose")
@@ -158,8 +158,10 @@ def test_ui_end_to_end(server):
         page.wait_for_selector(".tcard", timeout=30000)
         assert "Acme AI" in page.inner_text(".col[data-col=saved]")
 
-        # resumes: upload a new version -> re-ranked, impact report, old version kept
-        page.click("#nav [data-page=resumes]")
+        # resumes: a tab under Tailor — upload a new version -> re-ranked, impact report, old version kept
+        page.click("#nav [data-page=tailor]")
+        page.click(".subtabs >> text=Your resumes")
+        assert "on" in page.get_attribute("#nav [data-page=tailor]", "class")
         page.wait_for_selector("#page-resumes >> text=Skills found")
         new = tmp_resume = Path(__file__).parent / "_tmp_resume.txt"
         tmp_resume.write_text(("Data analyst: SQL, pandas, statistics, Tableau, A/B testing, dashboards. ") * 6)
@@ -205,8 +207,9 @@ def test_ui_end_to_end(server):
         full = httpx.get(f"{server}/tailor/{item['id']}/export", params={"full": "true"}).text
         assert "● Containerized PyTorch" in full and "%PDF" not in full  # the whole resume as text, changes in place
 
-        # inbox: role + company read from the email, one-click best match moves it into the tracker
-        page.click("#nav [data-page=inbox]")
+        # inbox: a tab under Tracker — role + company read from the email, one-click best match moves it into the tracker
+        page.click("#nav [data-page=tracker]")
+        page.click(".subtabs >> text=Gmail inbox")
         page.wait_for_selector("#page-inbox >> text=Connect Gmail (read-only, free)")
         card = page.inner_text("#page-inbox")
         assert "Machine Learning Intern (Summer 2027)" in card and "Acme AI" in card

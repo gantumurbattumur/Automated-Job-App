@@ -18,19 +18,22 @@ uv pip install --python .venv/bin/python fastapi "uvicorn[standard]" sqlmodel ht
 
 ## Pages
 - **Home** – your plan for today: the best new picks (with the skills they match), to-dos (follow-ups, inbox, deadlines), tailoring progress, your application pipeline, a 7-day chart and recent activity. **Jobs** is where you browse and filter everything.
-- **Jobs** – filters (left; includes LinkedIn-style "Near <city> within N miles" using a free offline city list) · ranked list (middle, `j`/`k` to move) · details (right): why it ranks there, F-1/CPT eligibility,
-  H-1B history and how well your resume matches. **Resume fit → Where to add keywords** shows your resume map (below).
+- **Jobs** – laid out like LinkedIn: search + "near <city> within N miles" (free offline city list), a row of filter
+  pills (date posted, role, season, CPT, remote, **All filters**), a quiet list (company, location, age, "N skills match ·
+  X% match", `j`/`k` to move) and the job on the right: Apply · Save · Tailor, **How you match** (skills you have and
+  miss, why it ranked here, any eligibility warnings) and the description.
 - **Tracker** – drag-and-drop board or table; tag "rejected over CPT" so that company ranks lower next time.
-- **Inbox** – Gmail connection and job emails to review. **Resumes** – upload/replace/revert resumes (PDF, DOCX, TXT),
-  set the primary one and title keywords; every job is re-scored immediately and you see how your top 50 changed.
-  **Tailor** – match your resume to up to 10 jobs (below). **Settings** – schedule, alerts, cleanup/backups, run-at-login.
+  The **Gmail inbox** tab holds job emails to review (the red count on Tracker).
+- **Tailor** – match your resume to up to 10 jobs (below). The **Your resumes** tab uploads/replaces/reverts resumes
+  (PDF, DOCX, TXT) and sets the primary one; every job is re-scored immediately and you see how your top 50 changed.
+- **Settings** – schedule, alerts, tailoring model, cleanup/backups, run-at-login.
 
 ## Tailor your resume (up to 10 jobs)
 For each job, JobPrep compares the description with your resume and scores the match like ATS tools do — hard-skill
 keywords 40% (frequent / required ones weigh more), requirements backed by a bullet 25%, job title 15%, education 10%,
 soft skills 10%. It shows every missing keyword, each requirement with your closest bullet, and builds a prompt.
 
-**Resume map** (on a job's detail and as a tab on Tailor): your resume laid out section by section, with the job's
+**Resume map** (on the Tailor page): your resume laid out section by section, with the job's
 keywords highlighted where you already have them, each missing keyword placed on the bullet or skills line it fits best
 (hover a chip to see the job's sentence), which bullets prove which requirements, and the gaps nothing in your resume
 supports — add those only if they're true.

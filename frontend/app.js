@@ -127,12 +127,16 @@ const isUnseen = j => new Date(j.first_seen) > lastVisit;
 
 // ---------- router ----------
 const PAGES = { home: renderHome, jobs: renderJobsPage, tracker: renderTracker, inbox: renderInbox, resumes: renderResumes, tailor: renderTailor, settings: renderSettings };
+// Inbox lives under Tracker and Resumes under Tailor: own pages (and #links), reached by tabs at the top
+const PARENT = { inbox: 'tracker', resumes: 'tailor' };
+const SUBTABS = { tracker: [['tracker', 'Applications'], ['inbox', 'Gmail inbox']], tailor: [['tailor', 'Tailor jobs'], ['resumes', 'Your resumes']] };
+const subtabs = page => `<div class="subtabs">${SUBTABS[PARENT[page] || page].map(([p, l]) => `<a href="#${p}" class="${p === page ? 'on' : ''}">${l}${p === 'inbox' ? '<span class="count hidden" data-inbox-count></span>' : ''}</a>`).join('')}</div>`;
 function go(page) {
   page = PAGES[page] ? page : 'home';
   for (const p in PAGES) $(`#page-${p}`)?.classList.toggle('hidden', p !== page);  // tolerate a stale index.html
-  $$('#nav [data-page]').forEach(b => b.classList.toggle('on', b.dataset.page === page));
+  $$('#nav [data-page]').forEach(b => b.classList.toggle('on', b.dataset.page === (PARENT[page] || page)));
   if (location.hash !== `#${page}`) history.replaceState(null, '', `#${page}`);
-  PAGES[page]().catch(e => toast(`Error: ${e.message}`));
+  PAGES[page]().then(() => (PARENT[page] || page) === 'tracker' && loadInboxCount()).catch(e => toast(`Error: ${e.message}`));
 }
 $$('#nav [data-page]').forEach(b => b.onclick = () => go(b.dataset.page));
 window.addEventListener('hashchange', () => go(location.hash.slice(1)));
@@ -159,8 +163,8 @@ $('#refreshBtn').onclick = async () => {
   }, 4000);
 };
 async function loadInboxCount() {
-  const items = await api('/inbox'); const el = $('#inboxCount');
-  el.textContent = items.length; el.classList.toggle('hidden', !items.length);
+  const items = await api('/inbox');
+  $$('#inboxCount, [data-inbox-count]').forEach(el => { el.textContent = items.length; el.classList.toggle('hidden', !items.length); });
 }
 
 // ---------- HOME: today's plan (Jobs is for browsing everything) ----------
@@ -260,7 +264,7 @@ async function renderJobsPage() {
   renderFilters();
   await loadJobs();
 }
-// the five filters people actually change; everything else lives in the "More filters" drawer
+// the filters people change most are pills above the list; everything else lives in the "All filters" drawer
 const ROLE_SETS = { tech: ['ai_ml', 'data_science', 'data_eng', 'swe', 'research', 'quant'], ai: ['ai_ml', 'data_science', 'research'],
   swe: ['swe'], data: ['data_science', 'data_eng'], any: [] };
 const CPT_SETS = { ok: ['friendly', 'unclear'], friendly: ['friendly'], all: ['friendly', 'unclear', 'blocked'] };
@@ -270,26 +274,37 @@ function renderQuickbar() {
   const role = Object.keys(ROLE_SETS).find(k => sameSet(ROLE_SETS[k], S.categories)) || 'custom';
   const cpt = Object.keys(CPT_SETS).find(k => sameSet(CPT_SETS[k], S.cpt_allow)) || 'custom';
   const season = S.seasons.length === 1 ? S.seasons[0] : S.seasons.length ? 'custom' : '';
+  const remote = sameSet(S.work_modes, ['remote']);
   const opt = (o, v) => Object.entries(o).map(([k, l]) => `<option value="${esc(k)}" ${String(v) === k ? 'selected' : ''}>${esc(l)}</option>`).join('');
+  const on = k => JSON.stringify(getk(k)) !== JSON.stringify(k.split('.').reduce((o, p) => o?.[p], DEFAULTS)) ? 'on' : '';
+  const more = moreFilterCount();
+  $('#nearbox').innerHTML = `<span class="sb-ico">📍</span><input type="text" data-q="near" value="${esc(S.near_location)}" placeholder="City, state — or anywhere" list="dl-qnear" autocomplete="off"><datalist id="dl-qnear"></datalist>
+    <select data-q="radius" class="sb-radius" title="Distance" ${S.near_location ? '' : 'disabled'}>${opt({ 10: '10 mi', 25: '25 mi', 50: '50 mi', 100: '100 mi', 200: '200 mi', 500: '500 mi' }, S.near_radius_miles)}</select>`;
   $('#quickbar').innerHTML = `
-    <label class="field"><span>Posted</span><select data-q="posted">${opt({ 0: 'Any time', 1: 'Last 24 hours', 3: 'Last 3 days', 7: 'Last week', 30: 'Last month' }, S.posted_within_days)}</select></label>
-    <label class="field"><span>Role</span><select data-q="role">${opt({ tech: 'All technical', ai: 'AI / ML / data science', swe: 'Software', data: 'Data', any: 'Any role', ...(role === 'custom' ? { custom: 'Custom' } : {}) }, role)}</select></label>
-    <label class="field"><span>Season</span><select data-q="season">${opt({ '': 'Any season', ...Object.fromEntries(SEASONS.map(x => [x, x.replace(/^\w/, c => c.toUpperCase())])), ...(season === 'custom' ? { custom: 'Custom' } : {}) }, season)}</select></label>
-    <label class="field" style="min-width:170px"><span>Near</span><input type="text" data-q="near" value="${esc(S.near_location)}" placeholder="Anywhere" list="dl-qnear" autocomplete="off"><datalist id="dl-qnear"></datalist></label>
-    <label class="field" style="min-width:100px"><span>Within</span><select data-q="radius" ${S.near_location ? '' : 'disabled'}>${opt({ 10: '10 mi', 25: '25 mi', 50: '50 mi', 100: '100 mi', 200: '200 mi', 500: '500 mi' }, S.near_radius_miles)}</select></label>
-    <label class="field"><span>CPT</span><select data-q="cpt">${opt({ ok: 'Hide “no CPT”', friendly: 'Says CPT OK only', all: 'Show all', ...(cpt === 'custom' ? { custom: 'Custom' } : {}) }, cpt)}</select></label>
-    <button class="btn" id="moreFilters">More filters</button>`;
+    <select class="pill ${on('posted_within_days')}" data-q="posted" title="Date posted">${opt({ 0: 'Date posted', 1: 'Past 24 hours', 3: 'Past 3 days', 7: 'Past week', 30: 'Past month' }, S.posted_within_days)}</select>
+    <select class="pill ${on('categories')}" data-q="role" title="Role">${opt({ tech: 'All technical roles', ai: 'AI / ML / data science', swe: 'Software', data: 'Data', any: 'Any role', ...(role === 'custom' ? { custom: 'Roles: custom' } : {}) }, role)}</select>
+    <select class="pill ${on('seasons')}" data-q="season" title="Season">${opt({ '': 'Any season', ...Object.fromEntries(SEASONS.map(x => [x, x.replace(/^\w/, c => c.toUpperCase())])), ...(season === 'custom' ? { custom: 'Seasons: custom' } : {}) }, season)}</select>
+    <select class="pill ${on('cpt_allow')}" data-q="cpt" title="CPT">${opt({ ok: 'Hide “no CPT”', friendly: 'Says CPT OK', all: 'CPT: all jobs', ...(cpt === 'custom' ? { custom: 'CPT: custom' } : {}) }, cpt)}</select>
+    <button class="pill ${remote ? 'on' : ''}" data-q="remote" title="Only remote jobs">Remote</button>
+    <span class="pill-sep"></span>
+    <button class="pill ${more ? 'on' : ''}" id="moreFilters">All filters${more ? ` (${more})` : ''}</button>`;
   const set = (k, v) => { setk(k, v); saveFilters(); };
   $('[data-q=posted]').onchange = e => set('posted_within_days', Number(e.target.value));
   $('[data-q=role]').onchange = e => e.target.value !== 'custom' && set('categories', [...ROLE_SETS[e.target.value]]);
   $('[data-q=season]').onchange = e => e.target.value !== 'custom' && set('seasons', e.target.value ? [e.target.value] : []);
   $('[data-q=radius]').onchange = e => set('near_radius_miles', Number(e.target.value));
   $('[data-q=cpt]').onchange = e => e.target.value !== 'custom' && set('cpt_allow', [...CPT_SETS[e.target.value]]);
+  $('[data-q=remote]').onclick = () => set('work_modes', remote ? [...DEFAULTS.work_modes] : ['remote']);
   const near = $('[data-q=near]'); let tm;
   near.onchange = () => set('near_location', near.value.trim());
   near.oninput = () => { clearTimeout(tm); tm = setTimeout(async () => { $('#dl-qnear').innerHTML = (await api(`/geo/suggest?q=${enc(near.value)}`).catch(() => [])).map(o => `<option value="${esc(o)}">`).join(''); }, 200); };
   $('#moreFilters').onclick = () => $('#drawer').classList.remove('hidden');
 }
+// drawer filters changed from their defaults (the pills above show their own state)
+const QUIET_KEYS = ['freshness_half_life_days', 'new_badge_hours', 'allow_boost', 'stale_days', 'h1b_min_approvals', 'work_modes'];
+const changedFields = fs => fs.filter(f => f.t !== 'range' && !QUICK_KEYS.includes(f.k) && !QUIET_KEYS.includes(f.k)
+  && JSON.stringify(getk(f.k)) !== JSON.stringify(f.k.split('.').reduce((o, p) => o?.[p], DEFAULTS)));
+const moreFilterCount = () => FILTERS.reduce((n, [, , fs]) => n + changedFields(fs).length, 0);
 document.addEventListener('click', e => { if (e.target.closest('#drawerClose')) $('#drawer').classList.add('hidden'); });
 async function loadSettings() {
   const [s, o, d] = await Promise.all([api('/settings'), api('/settings/options'), api('/settings/defaults')]);
@@ -337,7 +352,7 @@ function renderFilters() {
         <select id="preset"><option value="">— current filters —</option>${Object.keys(presets).map(n => `<option>${esc(n)}</option>`).join('')}</select></div>
       <div class="row"><button class="btn sm" id="presetSave">Save view…</button><button class="btn sm" id="presetDel">Delete</button>
         <button class="btn sm ghost" id="resetFilters">Reset all</button></div></div></div>
-    ${FILTERS.map(([g, , fs]) => `<details data-g="${esc(g)}" ${openGroups.has(g) ? 'open' : ''}><summary>${esc(g)}</summary><div class="grp">${fs.map(fieldHtml).join('')}</div></details>`).join('')}`;
+    ${FILTERS.map(([g, , fs]) => `<details data-g="${esc(g)}" ${openGroups.has(g) ? 'open' : ''}><summary>${esc(g)}${changedFields(fs).length ? ` <span class="tag ac">${changedFields(fs).length} changed</span>` : ''}</summary><div class="grp">${fs.map(fieldHtml).join('')}</div></details>`).join('')}`;
   $$('#filters details').forEach(d => d.ontoggle = () => { d.open ? openGroups.add(d.dataset.g) : openGroups.delete(d.dataset.g); store.set('openGroups', [...openGroups]); });
   bindFields($('#filters'), saveFilters);
   $('#preset').onchange = async e => { const n = e.target.value; if (!n) return; S = await put('/settings', presets[n]); renderFilters(); $('#preset').value = n; loadJobs(); };
@@ -349,26 +364,13 @@ let saveTimer;
 function saveFilters() {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(async () => {
-    try { S = await put('/settings', S); if ($('#preset')) $('#preset').value = ''; renderQuickbar(); renderFilters(); renderActiveFilters(); loadJobs(); }
+    try { S = await put('/settings', S); if ($('#preset')) $('#preset').value = ''; renderQuickbar(); renderFilters(); loadJobs(); }
     catch (e) { toast(e.message); S = await api('/settings'); renderQuickbar(); renderFilters(); }  // put back what's actually saved
   }, 300);
-}
-function renderActiveFilters() {
-  const chips = [];
-  for (const [, , fs] of FILTERS) for (const f of fs) {
-    if (f.t === 'range' || QUICK_KEYS.includes(f.k) || ['freshness_half_life_days', 'new_badge_hours', 'allow_boost', 'stale_days', 'h1b_min_approvals'].includes(f.k)) continue;
-    const v = getk(f.k), d = f.k.split('.').reduce((o, p) => o?.[p], DEFAULTS);
-    if (JSON.stringify(v) === JSON.stringify(d)) continue;
-    let txt = Array.isArray(v) ? (v.length ? v.map(x => f.o?.[x] || x).join(', ') : 'any') : f.t === 'bool' ? (v ? 'on' : 'off') : (f.o?.[v] || v);
-    chips.push(`<span class="tag ac" title="${esc(f.l)}: ${esc(txt)} — click ✕ to reset">${esc(f.l.length > 28 ? f.l.slice(0, 26) + '…' : f.l)} <a href="#" data-reset="${f.k}">✕</a></span>`);
-  }
-  $('#activeFilters').innerHTML = chips.length ? `<span class="tiny mut">Also filtering by:</span> ${chips.join('')}` : '';
-  $$('[data-reset]').forEach(a => a.onclick = e => { e.preventDefault(); setk(a.dataset.reset, structuredClone(a.dataset.reset.split('.').reduce((o, p) => o?.[p], DEFAULTS))); renderFilters(); saveFilters(); });
 }
 async function loadJobs() {
   $('#list').innerHTML = '<div class="empty"><span class="spin"></span> Ranking…</div>';
   feed = await api(`/jobs?show_hidden=${showHidden}`);
-  renderActiveFilters();
   renderList();
 }
 function sorted(rows) {
@@ -383,9 +385,9 @@ function visibleRows() {
 }
 function renderList() {
   const rows = visibleRows(), unseen = feed.shown.filter(isUnseen).length;
-  $('#counts').innerHTML = `<b>${feed.shown_count.toLocaleString()}</b> shown · ${feed.hidden_count.toLocaleString()} hidden${unseen ? ` · <b class="ok">${unseen} new since last visit</b> <a href="#" id="markSeen">mark seen</a>` : ''}`;
+  $('#counts').innerHTML = `<b>${feed.shown_count.toLocaleString()}</b> results${unseen ? ` · <span class="ok">${unseen} new</span> <a href="#" id="markSeen">mark seen</a>` : ''}`;
   if ($('#markSeen')) $('#markSeen').onclick = e => { e.preventDefault(); lastVisit = Date.now(); store.set('lastVisit', lastVisit); renderList(); };
-  $('#list').innerHTML = rows.length ? rows.map(listItem).join('') : `<div class="empty">No jobs match these filters.<br><span class="small">Try a wider “Posted within”, or clear a category.</span></div>`;
+  $('#list').innerHTML = rows.length ? rows.map(listItem).join('') : `<div class="empty">No jobs match these filters.<br><span class="small">Try a wider “Date posted”, or clear a filter.</span></div>`;
   $$('#list .job').forEach(el => el.onclick = () => { select(el.dataset.id); showDetail(true); });
   if (!rows.find(r => r.id === selected)) selected = rows[0]?.id || null;
   if (selected) { select(selected, false); if (openOnLoad) showDetail(true); } else $('#detail').innerHTML = '<div class="card"><div class="empty">Select a job to see the details.</div></div>';
@@ -398,20 +400,21 @@ function showDetail(on) {
   if (on && matchMedia('(max-width: 1100px)').matches) $('#main').scrollTo(0, 0);
 }
 document.addEventListener('click', e => { if (e.target.closest('#detailBack')) showDetail(false); });
+// company initial on a tinted square, the same color for the same company every time
+const logo = (company, cls = '') => { let h = 0; for (const c of company || '') h = (h * 31 + c.charCodeAt(0)) % 360;
+  return `<div class="logo-sq ${cls}" style="--h:${h}">${esc((company || '?').trim()[0]?.toUpperCase() || '?')}</div>`; };
 function listItem(j) {
-  const hid = j.hidden_reasons.length, why = (j.skills_matched || []).slice(0, 4);
-  const tags = [j.status ? `<span class="tag ac">${SLABEL[j.status]}</span>` : '',
-    cptTagIfKnown(j),
-    j.days_left != null && j.days_left >= 0 && j.days_left <= 14 ? `<span class="tag warn">${Math.ceil(j.days_left)}d left</span>` : '',
-    j.hourly ? `<span class="tag">$${j.hourly[1]}/hr</span>` : '',
-    j.work_mode && j.work_mode !== 'onsite' ? `<span class="tag">${esc(j.work_mode)}</span>` : '',
-    hid ? `<span class="tag bad">hidden: ${esc(j.hidden_reasons[0])}${hid > 1 ? ` +${hid - 1}` : ''}</span>` : ''].join('');
-  return `<div class="job ${j.id === selected ? 'sel' : ''} ${hid ? 'is-hidden' : ''}" data-id="${esc(j.id)}">
-    <div class="t">${isUnseen(j) ? '<span class="unseen-dot" title="New since your last visit"></span>' : ''}${esc(j.title)}</div>
-    <div class="score ${scoreCls(j.score)}" title="Score out of 100">${Math.round(j.score)}</div>
-    <div class="meta"><b class="co">${esc(j.company)}</b> · ${esc(shortLoc(j.location))}${j.distance_mi != null ? ` · <b>${j.distance_mi} mi</b>` : ''} · ${ago(j.posted_at)}</div>
-    ${why.length ? `<div class="why">✓ ${why.map(esc).join(' · ')}</div>` : ''}
-    ${tags ? `<div class="tags">${tags}</div>` : ''}</div>`;
+  const hid = j.hidden_reasons.length, n = (j.skills_matched || []).length;
+  // one highlight, most useful first
+  const badge = j.status ? `<span class="tag ac">${SLABEL[j.status]}</span>`
+    : hid ? `<span class="tag bad">hidden: ${esc(j.hidden_reasons[0])}</span>`
+    : j.days_left != null && j.days_left >= 0 && j.days_left <= 7 ? `<span class="tag warn">${Math.ceil(j.days_left)}d left</span>`
+    : cptTagIfKnown(j);
+  return `<div class="job ${j.id === selected ? 'sel' : ''} ${hid ? 'is-hidden' : ''}" data-id="${esc(j.id)}">${logo(j.company)}
+    <div class="jc"><div class="t">${isUnseen(j) ? '<span class="unseen-dot" title="New since your last visit"></span>' : ''}${esc(j.title)}</div>
+      <div class="co">${esc(j.company)}</div>
+      <div class="meta">${esc(shortLoc(j.location))}${j.distance_mi != null ? ` (${j.distance_mi} mi)` : ''}${j.work_mode === 'remote' && !/remote/i.test(j.location) ? ' · Remote' : ''} · ${ago(j.posted_at)}</div>
+      <div class="hl">${n ? `<span class="ok">✓ ${n} skill${n > 1 ? 's' : ''} match</span> · ` : ''}<span title="How well your resume matches">${Math.round((j.relevance ?? 0) * 100)}% match</span>${badge ? ` ${badge}` : ''}</div></div></div>`;
 }
 async function select(id, scroll = true) {
   selected = id;
@@ -422,61 +425,47 @@ async function select(id, scroll = true) {
   const d = detailCache[id] || (detailCache[id] = await api(`/jobs/${enc(id)}`));
   if (selected === id) renderDetail({ ...row, ...d }, d);
 }
+function whyLine(j) {  // the score in words: what lifted this job, biggest first
+  const p = j.score_parts || {}, rel = Math.round((j.relevance ?? 0) * 100);
+  const words = { relevance: `${rel >= 70 ? 'strong' : rel >= 50 ? 'good' : 'some'} resume match (${rel}%, ${laneLabel(j.best_lane)} resume)`,
+    freshness: `posted ${ago(j.posted_at)}`, friendliness: j.cpt_label, personal: 'like jobs you saved or applied to', allowlist: 'a company you favorited' };
+  return Object.entries(p).filter(([k, v]) => v > 0 && words[k]).sort((a, b) => b[1] - a[1]).map(([k]) => words[k]).join(' · ');
+}
 function renderDetail(j, full) {
-  const parts = j.score_parts || {}, total = Object.values(parts).reduce((a, b) => a + b, 0) || 1;
-  const rp = j.relevance_parts || {};
-  const chips = [cptTag(j),
-    j.h1b_approvals ? `<span class="tag" title="USCIS H-1B approvals FY2025–26">${j.h1b_approvals.toLocaleString()} H-1B</span>` : '',
+  const pills = [cptTag(j), j.work_mode ? `<span class="tag">${esc(j.work_mode.replace(/^\w/, c => c.toUpperCase()))}</span>` : '',
     j.hourly ? `<span class="tag">$${j.hourly[0]}${j.hourly[1] !== j.hourly[0] ? `–${j.hourly[1]}` : ''}/hr</span>` : '',
-    j.work_mode ? `<span class="tag">${esc(j.work_mode)}</span>` : '', ...(j.seasons || []).map(x => `<span class="tag">${esc(x)}</span>`),
-    j.distance_mi != null ? `<span class="tag">${j.distance_mi} mi away</span>` : '',
     j.deadline ? `<span class="tag ${j.days_left < 7 ? 'warn' : ''}">apply by ${dateOnly(j.deadline)}</span>` : '',
-    ...(j.auth || []).map(a => `<span class="tag bad">requires ${esc(a.replace('_', ' '))}</span>`),
-    ...(j.education || []).map(e => `<span class="tag warn">${esc(e.replace(/_/g, ' '))}</span>`),
-    ...(j.warnings || []).filter(w => !(w.startsWith("Master's") && (j.education || []).includes('masters_not_listed'))).map(w => `<span class="tag warn">${esc(w)}</span>`)].filter(Boolean).join('');
+    (j.seasons || []).length ? `<span class="tag">${esc(j.seasons[0].replace(/^\w/, c => c.toUpperCase()))}</span>` : ''].filter(Boolean).join('');
+  const cautions = [...(j.auth || []).map(a => `requires ${a.replace('_', ' ')}`), ...(j.education || []).map(e => e.replace(/_/g, ' ')),
+    ...(j.warnings || []).filter(w => !(w.startsWith("Master's") && (j.education || []).includes('masters_not_listed')))];
+  const have = j.skills_matched || [], miss = j.skills_missing || [];
+  const pts = Object.entries(j.score_parts || {}).map(([k, v]) => `${PARTS[k]?.[0] || k} ${v}`).join(' + ');
   $('#detail').innerHTML = `
     <button class="btn sm back-btn" id="detailBack">← All jobs</button>
     <div class="card"><div class="bd">
-      <div class="row between"><span class="small mut">${esc(j.company)}</span><span class="score ${scoreCls(j.score)}" style="grid-row:auto" title="Match score">${Math.round(j.score ?? 0)}</span></div>
-      <div class="title">${esc(j.title)}</div>
-      <div class="small mut" title="${esc(j.location)}">${esc(shortLoc(j.location))} · posted ${ago(j.posted_at)} · ${esc(SRC[j.source] || j.source)}${j.status ? ` · <b>${SLABEL[j.status]}</b>` : ''}</div>
-      <div class="glance">${chips}</div>
-      <div class="row" style="margin-top:14px">
+      <div class="dh">${logo(j.company, 'lg')}<div><div class="small">${esc(j.company)}</div><div class="title">${esc(j.title)}</div>
+        <div class="small mut" title="${esc(j.location)}">${esc(shortLoc(j.location))}${j.distance_mi != null ? ` (${j.distance_mi} mi)` : ''} · ${ago(j.posted_at)} · via ${esc(SRC[j.source] || j.source)}${j.status ? ` · <b>${SLABEL[j.status]}</b>` : ''}</div></div></div>
+      <div class="glance">${pills}</div>
+      <div class="row actions">
         <button class="btn primary" data-act="apply" title="Open the posting (shortcut: a)">Apply ↗</button>
-        <button class="btn" data-act="tailor" title="Match your resume to this job">✎ Tailor resume</button>
-        <div class="icon-btns"><button class="btn sm ghost" data-act="saved" title="Save to tracker (s)">☆ Save</button>
-          <button class="btn sm ghost" data-act="applied" title="Mark applied">✓ Applied</button>
-          <button class="btn sm ghost danger" data-act="dismissed" title="Not interested — hides it (x)">✕</button></div></div>
+        <button class="btn" data-act="saved" title="Save to tracker (s)">${j.status === 'saved' ? '★ Saved' : '☆ Save'}</button>
+        <button class="btn" data-act="tailor" title="Claude tailors your resume to this job">✎ Tailor resume</button>
+        <details class="menu"><summary class="btn" title="More">⋯</summary><div class="menu-pop">
+          <button data-act="applied">✓ Mark as applied</button><button data-act="dismissed">✕ Not interested (hide)</button></div></details></div>
       ${j.hidden_reasons?.length ? `<p class="small bad" style="margin:10px 0 0">Hidden by your filters: ${j.hidden_reasons.map(esc).join(' · ')}</p>` : ''}
-      <details style="margin-top:12px"><summary class="small mut">Why ${Math.round(j.score ?? 0)}? Resume match ${Math.round((j.relevance ?? 0) * 100)}% (${esc(laneLabel(j.best_lane))} resume)</summary>
-        <div class="bars" style="margin-top:8px">${Object.entries(parts).map(([k, v]) => `<i style="width:${100 * v / total}%;background:var(${PARTS[k]?.[1] || '--faint'})" title="${PARTS[k]?.[0] || k}: ${v}"></i>`).join('')}</div>
-        <div class="legend">${Object.entries(parts).map(([k, v]) => `<span><span class="sw" style="background:var(${PARTS[k]?.[1] || '--faint'})"></span>${PARTS[k]?.[0] || k}: <b>${v}</b></span>`).join('')}</div>
-        <p class="tiny mut" style="margin:6px 0 0">Resume match = meaning ${Math.round((rp.semantic ?? 0) * 100)}% · skills ${Math.round((rp.skills ?? 0) * 100)}% · title ${Math.round((rp.title ?? 0) * 100)}%. ${j.cpt_label ? `CPT: ${esc(j.cpt_label)}.` : ''}</p>
-      </details>
     </div></div>
-    <div class="card" id="fitCard"><div class="hd"><h3>Resume fit</h3><button class="btn sm" id="fitToggle">${fitOpen ? 'Hide map' : 'Where to add keywords'}</button></div><div class="bd">
-      <div class="small">${(j.skills_matched || []).length ? `<span class="ok">✓ ${j.skills_matched.slice(0, 8).map(esc).join(', ')}</span>` : ''}
-        ${(j.skills_missing || []).length ? `<div style="margin-top:4px">Missing: ${j.skills_missing.slice(0, 10).map(x => `<span class="tag bad">${esc(x)}</span>`).join(' ')}</div>` : ''}</div>
-      <div id="fitBody">${fitOpen ? '<div class="small mut" style="margin-top:10px"><span class="spin"></span> Mapping your resume…</div>' : ''}</div></div></div>
-    <div class="card"><div class="hd"><h3>Description</h3>${full?.description ? '<button class="btn sm ghost" id="moreDesc">Show all</button>' : ''}</div><div class="bd">
+    <div class="card"><div class="hd"><h3>How you match</h3><span class="small mut">${Math.round((j.relevance ?? 0) * 100)}% resume match</span></div><div class="bd">
+      ${have.length ? `<div class="small"><span class="mut">On your resume</span> ${have.slice(0, 10).map(x => `<span class="tag ok">✓ ${esc(x)}</span>`).join(' ')}</div>` : ''}
+      ${miss.length ? `<div class="small" style="margin-top:6px"><span class="mut">Missing</span> ${miss.slice(0, 8).map(x => `<span class="tag">${esc(x)}</span>`).join(' ')}</div>` : ''}
+      <p class="small mut" style="margin:${have.length || miss.length ? '10px' : '0'} 0 0" title="${esc(pts)}">Ranked here for: ${esc(whyLine(j)) || '—'}</p>
+      ${cautions.length ? `<p class="small warn" style="margin:6px 0 0">⚠ ${cautions.map(esc).join(' · ')}</p>` : ''}
+    </div></div>
+    <div class="card"><div class="hd"><h3>About the job</h3>${full?.description ? '<button class="btn sm ghost" id="moreDesc">Show all</button>' : ''}</div><div class="bd">
       ${full ? (full.description ? `<div class="desc" id="desc">${esc(full.description)}</div>` : '<p class="mut small" style="margin:0">Only the title is known so far — open the posting to read it.</p>') : '<span class="spin"></span>'}
       ${j.also?.length ? `<p class="small" style="margin:10px 0 0">Also listed on: ${j.also.map(a => `<a href="${esc(a.url)}" target="_blank" rel="noopener">${esc(SRC[a.source] || a.source)}</a>`).join(' · ')}</p>` : ''}
     </div></div>`;
-  $$('#detail [data-act]').forEach(b => b.onclick = () => act(b.dataset.act, j, b));
-  $('#fitToggle').onclick = () => { fitOpen = !fitOpen; store.set('fitOpen', fitOpen); renderDetail(j, full); };
-  if (fitOpen && full) loadFit(j);
+  $$('#detail [data-act]').forEach(b => b.onclick = () => { b.closest('details')?.removeAttribute('open'); act(b.dataset.act, j, b); });
   if ($('#moreDesc')) $('#moreDesc').onclick = () => { $('#desc').classList.toggle('open'); $('#moreDesc').textContent = $('#desc').classList.contains('open') ? 'Show less' : 'Show all'; };
-}
-let fitOpen = store.get('fitOpen', false);
-async function loadFit(j) {
-  const c = detailCache[j.id] || {};
-  try { c.fit = c.fit || await api(`/jobs/${enc(j.id)}/fit`); } catch (e) { if (selected === j.id && $('#fitBody')) $('#fitBody').innerHTML = `<p class="small bad">${esc(e.message)}</p>`; return; }
-  if (selected !== j.id || !$('#fitBody')) return;
-  const f = c.fit;
-  $('#fitBody').innerHTML = `<div class="row between" style="margin:12px 0 8px"><span class="small"><b>ATS-style match ${Math.round(f.score)}%</b> · ${f.keywords.have} of ${f.keywords.total} job keywords · ${esc(laneLabel(f.lane))} resume</span>
-      <button class="btn sm primary" data-act="tailor">✎ Tailor with Claude</button></div>
-    ${f.has_description ? resumeMapHtml(f.map) : '<p class="small mut">No description saved for this job yet, so there is nothing to map.</p>'}`;
-  $$('#fitBody [data-act]').forEach(b => b.onclick = () => act('tailor', j));
 }
 async function setStatus(id, status, extra = {}) { await put(`/applications/${enc(id)}`, { status, ...extra }); }
 async function act(what, j, btn) {
@@ -521,7 +510,7 @@ async function renderTracker() {
   const by = st.by_status, today = new Date().toISOString().slice(0, 10);
   const f = rows.filter(a => !trackQ || `${a.company} ${a.title}`.toLowerCase().includes(trackQ));
   const cols = ['saved', 'opened', 'applied', 'oa', 'interview', 'offer', 'rejected', 'ghosted'];
-  $('#page-tracker').innerHTML = `
+  $('#page-tracker').innerHTML = `${subtabs('tracker')}
     <div class="page-head"><div><h1>Tracker</h1><p>Drag cards between columns, or change status in the table. Gmail updates move them automatically.</p></div>
       <div class="row"><div class="seg"><button data-view="board" class="${trackView === 'board' ? 'on' : ''}">Board</button><button data-view="table" class="${trackView === 'table' ? 'on' : ''}">Table</button></div>
         <button class="btn" id="addManual">+ Add an application</button><a class="btn" href="/applications.csv">Export CSV</a></div></div>
@@ -575,7 +564,7 @@ let inboxTab = 'new';
 async function renderInbox() {
   const [g, items, handled] = await Promise.all([api('/gmail'), api('/inbox?state=new'), api('/inbox?state=applied_to_tracker')]);
   const ls = g.last_scan, list = inboxTab === 'new' ? items : handled;
-  $('#page-inbox').innerHTML = `
+  $('#page-inbox').innerHTML = `${subtabs('inbox')}
     <div class="page-head"><div><h1>Inbox</h1><p>Job emails from Gmail. Emails that clearly match a tracked application update it automatically; the rest wait here.</p></div></div>
     <div class="card" style="margin-bottom:16px">${g.connected ? `<div class="bd row between">
         <span>📬 Connected as <b>${esc(g.email)}</b> · <span class="mut">${ls ? `last scan ${ago(ls.last_run)}${ls.error ? ` — <span class="bad">${esc(ls.error)}</span>` : ` — ${ls.job_emails ?? 0} job emails, ${ls.updated ?? 0} updated`}` : 'not scanned yet'}</span></span>
@@ -655,7 +644,7 @@ async function renderResumes() {
   const { resumes } = await api('/resumes');
   const im = lastImpact;
   const delta = (a, b, pct) => { const d = pct ? Math.round((b - a) * 100) : Math.round((b - a) * 10) / 10; return `<b class="${d > 0 ? 'ok' : d < 0 ? 'bad' : ''}">${d > 0 ? '+' : ''}${d}${pct ? ' pts' : ''}</b>`; };
-  $('#page-resumes').innerHTML = `
+  $('#page-resumes').innerHTML = `${subtabs('resumes')}
     <div class="page-head"><div><h1>Resumes</h1><p>Every job is scored against these. Upload a new version any time — the ranking updates right away.</p></div>
       <button class="btn primary" id="addResumeBtn">+ Add a resume</button></div>
     ${im ? `<div class="card" style="margin-bottom:16px;border-color:var(--ac)"><div class="hd"><h2>What changed in your top ${im.top_n}</h2><button class="btn sm ghost" id="hideImpact">✕</button></div><div class="bd small">
@@ -722,7 +711,7 @@ async function renderTailor() {
   if (!$('#page-tailor').innerHTML.trim()) $('#page-tailor').innerHTML = LOADING;
   const { items, max } = await api('/tailor');
   if (!items.find(i => i.id === tailorSel)) tailorSel = items[0]?.id || null;
-  $('#page-tailor').innerHTML = `
+  $('#page-tailor').innerHTML = `${subtabs('tailor')}
     <div class="hero"><div><h1>Tailor your resume</h1><p>Four steps per job: see what’s missing → Claude writes truthful suggestions → accept the ones you like → copy your tailored resume.</p></div>
       <div class="row"><span class="tag ${items.length >= max ? 'warn' : ''}">${items.length} / ${max} jobs</span><button class="btn primary" id="tadd" ${items.length >= max ? 'disabled' : ''}>+ Add a job</button></div></div>
     <div class="card ${showAdd ? '' : 'hidden'}" id="taddcard" style="margin-bottom:14px"><div class="bd">

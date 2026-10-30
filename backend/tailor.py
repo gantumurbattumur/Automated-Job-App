@@ -429,24 +429,6 @@ def resume_map(jd: dict, resume: dict, a: dict) -> dict:
             "gaps": gaps, "unshown_requirements": unshown[:6]}
 
 
-def job_fit(job_id: str) -> dict:
-    """ATS-style match + resume map for a job in the feed, against the resume that fits it best."""
-    from . import feed, resume, settings
-    from .models import Job, session
-    with session() as s:
-        j = s.get(Job, job_id)
-    if not j:
-        raise KeyError(job_id)
-    row = next((r for r in feed.build_cached(settings.get()) if r["id"] == job_id), {})
-    lane = row.get("best_lane") if row.get("best_lane") in resume.names() else resume.primary()
-    base = parse_resume(resume.text(lane))
-    jd = parse_jd(j.title, j.description or "", j.company)
-    a = analyze(jd, base, " ".join(t for n, t in resume.lane_texts().items() if n != lane))
-    return {"lane": lane, "score": a["score"], "parts": a["parts"], "has_description": bool(j.description),
-            "keywords": {"have": sum(k["in_resume"] for k in a["keywords"]), "total": len(a["keywords"])},
-            "map": resume_map(jd, base, a)}
-
-
 # --- suggestions (written by Claude, pasted back) --------------------------------
 
 def build_prompt(job: dict, jd: dict, resume: dict, a: dict) -> str:

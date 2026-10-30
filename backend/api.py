@@ -125,15 +125,6 @@ def job_detail(job_id: str):
             "description": j.description, "closed": j.closed, "application": a}
 
 
-@app.get("/jobs/{job_id}/fit")
-def job_fit(job_id: str):
-    """How your resume matches this job (ATS-style) and where each missing keyword would fit in it."""
-    try:
-        return tailor.job_fit(job_id)
-    except KeyError:
-        raise HTTPException(404, "unknown job")
-
-
 @app.get("/home")
 def home():
     """Everything the Home page shows, in one call."""
